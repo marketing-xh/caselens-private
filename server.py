@@ -1,4 +1,4 @@
-"""CaseLens V5: public account readings + explicitly labeled training estimates."""
+"""CaseLens V6: public account readings + explicitly labeled training estimates."""
 import json
 import base64
 import hmac
@@ -437,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(b)
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V5','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V6','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -532,7 +532,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V5: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V6: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if not os.getenv('CASELENS_PASSWORD'):

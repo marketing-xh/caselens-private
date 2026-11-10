@@ -1,4 +1,4 @@
-"""CaseLens V5 - clearly marked *training estimates*, never platform Insights.
+"""CaseLens V6 - internal training forecasts, separate from verified Insights.
 
 This module needs no API credentials. A profile with public metrics gets an
 account-informed estimate; one without public data gets a *generic training
@@ -27,16 +27,21 @@ def _round(v):
     return max(0, int(round(v)))
 
 
-def _mix_values(platform, views, followers, p):
+def _mix_values(platform, views, followers, p, observed=None):
     r = {'youtube': (0.028, 0.005, 0.0008), 'tiktok': (0.065, 0.008, 0.0013),
          'facebook': (0.028, 0.006, 0.0008), 'linkedin': (0.035, 0.012, 0.0006)}
     l, c, f = r[platform]
+    if observed:
+        # Public video engagement is cumulative, so these ratios are only
+        # calibration inputs for the hypothetical period model.
+        l = _bound(observed.get('likes', l), 0.001, 0.30)
+        c = _bound(observed.get('comments', c), 0.0001, 0.05)
     likes = _round(views * l)
     comments = _round(views * c)
     gained = _round(views * f)
     if platform == 'youtube':
         return {'views': _round(views), 'engaged_views': _round(views*0.51),
-                'likes':likes, 'comments':comments, 'subscribers_gained':gained,
+                'likes':likes, 'comments':comments, 'shares':_round(views*.0035), 'subscribers_gained':gained,
                 'subscribers_lost':_round(gained*.25),
                 'impressions':_round(views*2.8), 'impressions_ctr':6.2,
                 'watch_time_hours':_round(views*0.75/60), 'average_view_duration':45,
@@ -89,6 +94,16 @@ def estimate(profile, account, assumptions=None):
     recents=[x for x in profile.get('posts', []) if isinstance(x,dict) and _num(x.get('views')) is not None]
     recent_views=[_num(x.get('views')) for x in recents]
     median_views=statistics.median(recent_views) if recent_views else None
+    # When real per-video public likes/comments exist, let this account's
+    # engagement mix influence training estimates rather than one fixed ratio.
+    rates={}
+    if platform=='youtube':
+        usable=[v for v in recents if (_num(v.get('views')) or 0)>=100]
+        for field in ('likes','comments'):
+            samples=[_num(v.get(field))/_num(v.get('views'))
+                     for v in usable if _num(v.get(field)) is not None]
+            if len(samples)>=3:
+                rates[field]=statistics.median(samples)
     # Video views are cumulative as of scrape, not views earned in a 28-day interval.
     today=datetime.now(timezone.utc).date()
     active28=sum(1 for x in recents if str(x.get('date') or '') >= (today-timedelta(days=27)).isoformat())
@@ -147,7 +162,7 @@ def estimate(profile, account, assumptions=None):
     for i,factor in enumerate(factors):
         date=(today-timedelta(days=days-i-1)).isoformat()
         row={'date':date}
-        row.update(_mix_values(platform,factor*scale,followers,posts28))
+        row.update(_mix_values(platform,factor*scale,followers,posts28,rates))
         series.append(row)
     if platform=='youtube' and source:
         level='低—中（只有公开频道及视频累计数据）' if recent_views else '低（没有近期视频样本）'
@@ -160,7 +175,8 @@ def estimate(profile, account, assumptions=None):
         '公开视频累计观看与视频发布于何日，不代表这些观看全部发生在选定日期内。',
         '没有提供账号授权或后台原始报表，不能从链接反推出真正的触达、观看时长、涨粉或线索。',
         f'估算基础：{follower_basis}；{posts_basis}；{video_basis}。',
-        '指标之间使用统一比例与固定种子生成，允许比较7/28/90天，但不代表平台后台真实日波动。'
+        '互动数据：有足够公开视频样本时以该账号点赞/评论相对播放量的中位比例校准，否则使用训练假设；分享量仍需估算。',
+        '指标使用固定种子生成，允许比较7/28/90天，但不代表平台后台真实日波动。'
     ]
     model={'version':'5.0', 'type':'account-informed' if source and (public_followers is not None or median_views is not None) else 'generic-training-scenario',
            'confidence':level,'followers_basis':follower_basis,'followers_assumed':_round(followers),
