@@ -1,6 +1,4 @@
-"""CaseLens local dashboard service. Stdlib only. Binds to 127.0.0.1.
-Data comes only from authorized official APIs; no invented network metrics.
-"""
+"""CaseLens V5: public account readings + explicitly labeled training estimates."""
 import json
 import base64
 import hmac
@@ -18,6 +16,7 @@ from urllib.parse import urlparse, parse_qs, quote, urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from estimator import estimate, scenario_profile
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv('CASELENS_DB_PATH', str(ROOT / 'history.sqlite3')))
@@ -203,7 +202,7 @@ def retain_imported_report(a, result):
             row=sql(conn, 'SELECT payload FROM cases WHERE platform=? AND account=? ORDER BY updated_at DESC LIMIT 1', (a['platform'], a['id'].lower())).fetchone()
         if row:
             previous=json.loads(row[0])
-            if previous.get('report_source') or previous.get('analytics') or previous.get('series'):
+            if previous.get('report_source') or previous.get('analytics') or (previous.get('series') and not previous.get('estimate_model')):
                 for k in ('analytics','series','audience','report_start','report_end','report_source','report_notes'):
                     if k in previous:
                         result[k]=previous[k]
@@ -373,6 +372,8 @@ def bd_check_job(jid):
     raw=bd_call('https://api.brightdata.com/datasets/v3/snapshot/'+sid+'?format=json')
     a=item['a']; payload=bd_process(a,raw)
     payload=retain_imported_report(a,payload)
+    if not payload.get('report_source') and not payload.get('series'):
+        payload.update(estimate(payload,a))
     payload['account']=a
     payload['fetched_at']=now()
     payload['history']=store_and_history(a,payload['stats'])
@@ -383,6 +384,8 @@ def bd_check_job(jid):
 
 def finish_direct(a, result):
     result=retain_imported_report(a,result)
+    if not result.get('report_source') and not result.get('series'):
+        result.update(estimate(result,a))
     result['account']=a
     result['fetched_at']=now()
     result['history']=store_and_history(a,result['stats'])
@@ -434,7 +437,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(b)
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V4','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V5','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -446,21 +449,28 @@ class Handler(BaseHTTPRequestHandler):
             if u.path=='/api/profile':
                 a=parse_account(parse_qs(u.query).get('url',[''])[0]); cfg=config()
                 if a['platform']=='linkedin':
-                    raise ValueError('LinkedIn 公司主页后台数据需要已授权的组织 API 权限；目前支持在本后台导入 LinkedIn 分析报表。仅凭公司链接不能取得私有报表。')
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'LinkedIn组织分析接口尚未授权')))
                 if a['platform']=='youtube':
                     if os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key'):
-                        return self.send_json(200,finish_direct(a,yt_fetch(a,cfg)))
-                    return self.send_json(202,bd_trigger(a))
+                        try:
+                            return self.send_json(200,finish_direct(a,yt_fetch(a,cfg)))
+                        except ValueError as ex:
+                            return self.send_json(200,finish_direct(a,scenario_profile(a,ex)))
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置YouTube公开API Key')))
                 if a['platform']=='tiktok':
                     tok=os.getenv('TIKTOK_ACCESS_TOKEN') or cfg.get('tiktok',{}).get('access_token')
                     if tok:
                         return self.send_json(200,finish_direct(a,tk_fetch(a,cfg)))
-                    return self.send_json(202,bd_trigger(a))
+                    if os.getenv('BRIGHTDATA_API_TOKEN'):
+                        return self.send_json(202,bd_trigger(a))
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置TikTok公开采集服务')))
                 if a['platform']=='facebook':
                     entry=cfg.get('facebook_pages',{}).get(a['id']) or cfg.get('facebook_pages',{}).get(a['url'])
                     if entry:
                         return self.send_json(200,finish_direct(a,fb_fetch(a,cfg)))
-                    return self.send_json(202,bd_trigger(a))
+                    if os.getenv('BRIGHTDATA_API_TOKEN'):
+                        return self.send_json(202,bd_trigger(a))
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置Facebook公开采集服务')))
             return self.send_json(404, {'error':'Not found'})
         except ValueError as ex:
             return self.send_json(400, {'error':str(ex)})
@@ -472,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authenticated():
             return
         u=urlparse(self.path)
-        if u.path!='/api/cases':
+        if u.path not in ('/api/cases','/api/estimate'):
             return self.send_json(404, {'error':'Not found'})
         try:
             n=int(self.headers.get('Content-Length','0'))
@@ -480,6 +490,28 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('导入文件内容不合法或超过大小限制')
             obj=json.loads(self.rfile.read(n))
             a=parse_account(obj['url'])
+            if u.path=='/api/estimate':
+                raw_assumptions=obj.get('assumptions',{})
+                if not isinstance(raw_assumptions,dict):
+                    raise ValueError('假设参数格式不合法')
+                allowed=('followers','posts_per_month','views_per_post','views_28d')
+                asum={}
+                for k in allowed:
+                    val=raw_assumptions.get(k)
+                    if val not in ('',None):
+                        try: val=float(val)
+                        except (ValueError,TypeError): raise ValueError('参数必须是有效的非负数字')
+                        if not (0<=val<=10000000000): raise ValueError('参数必须在允许范围内')
+                        asum[k]=val
+                with db_conn() as conn:
+                    row=sql(conn,'SELECT payload FROM cases WHERE url=?',(a['url'],)).fetchone()
+                d=json.loads(row[0]) if row else scenario_profile(a)
+                if d.get('report_source') and (d.get('analytics') or d.get('series')):
+                    raise ValueError('当前账号已有导入的真实分析报表，不能用预估覆盖。')
+                d.update(estimate(d,a,asum))
+                d['fetched_at']=now()
+                save_case(a,d)
+                return self.send_json(200,d)
             d=obj['data']
             if not isinstance(d,dict) or not isinstance(d.get('stats'),dict) or d.get('platform')!=a['platform']:
                 raise ValueError('数据内容或平台与链接不一致')
@@ -500,7 +532,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V4: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V5: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if not os.getenv('CASELENS_PASSWORD'):
