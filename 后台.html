@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>CaseLens V8 | 六平台运营分析</title>
+<html lang="zh-CN"><head><meta charset="utf-8"/><meta content="width=device-width,initial-scale=1" name="viewport"/><title>CaseLens V9 | 平台专属运营分析</title>
 <style>
 :root{--bg:#f6f8fb;--ink:#1b2638;--muted:#78869a;--line:#e4eaf1;--accent:#ed383c;--pale:#fff4f4;--side:#111c2e;--green:#008f66}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;background:var(--bg);color:var(--ink)}input,select,button{font:inherit}button{cursor:pointer}.layout{display:grid;grid-template-columns:244px minmax(0,1fr);min-height:100vh}.sidebar{background:var(--side);color:#cdd8e6;padding:24px 12px;display:flex;flex-direction:column;gap:22px;min-width:0;position:sticky;top:0;height:100vh;overflow-y:auto}.brand{padding:0 13px;display:flex;align-items:center;gap:10px;font-size:21px;color:#fff;font-weight:850;letter-spacing:-.65px}.brandIcon{width:34px;height:34px;background:linear-gradient(135deg,#5665ee,#a777fe);display:grid;place-items:center;border-radius:10px;font-size:20px}.sidecap{font-size:10px;font-weight:800;letter-spacing:1.6px;color:#8293a9;margin:0 12px 8px}.navlink,.accountbtn{display:block;text-align:left;width:100%;padding:11px 12px;border:none;background:transparent;color:#cbd5e5;border-radius:9px;font-size:13px;transition:background .15s}.navlink:hover,.accountbtn:hover,.accountbtn.selected{background:#263751;color:white}.navlink.on{background:#2a3b54;color:#fff;font-weight:700}.accountbtn{line-height:1.35;overflow-wrap:anywhere}.accountbtn small{display:block;margin-top:4px;font-size:10px;color:#9aacbe}.accountlist{max-height:54vh;overflow-y:auto}.sidebarFoot{margin-top:auto;padding:12px 8px 0;border-top:1px solid #2b3b4d;color:#9aa9bd;font-size:10px;line-height:1.65}.workspace{min-width:0}.top{height:65px;padding:0 31px;display:flex;align-items:center;justify-content:space-between;background:#fff;border-bottom:1px solid var(--line);gap:10px}.breadcrumbs{font-size:12px;color:#8c98a8}.breadcrumbs strong{color:#263c59}.topstate{display:flex;gap:8px;align-items:center;font-size:12px;color:#8191a6}.statusdot{width:8px;height:8px;background:#b8c3d2;border-radius:50%}.statusdot.ready{background:#19a875}.shell{max-width:1550px;margin:auto;padding:25px 32px 65px}.headline{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:20px}.eyebrow{font-size:10px;letter-spacing:1.8px;color:#8a9bb0;font-weight:850;margin-bottom:4px}.headline h1{font-size:27px;letter-spacing:-.9px;line-height:1.3;margin:0 0 6px}.headline p{margin:0;font-size:13px;color:#8997ab}.actions{display:flex;gap:9px;align-items:center;flex-wrap:wrap}.button{border:1px solid #d8e1ec;border-radius:9px;padding:10px 15px;background:#fff;color:#2b415f;font-weight:700;font-size:12px}.button:hover{border-color:#98a9c7}.button.dark{background:#1e304b;color:white;border-color:#1e304b}.button.primary{background:#315bed;color:#fff;border-color:#315bed}.button:disabled{opacity:.6;cursor:wait}.inputbox{background:#fff;padding:20px 22px;border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 16px #1b325905}.inputlabel{display:block;color:#455671;font-size:12px;font-weight:750;margin-bottom:10px}.entry{display:flex;gap:10px;align-items:center}.entry input{min-width:0;flex:1;height:43px;border:1px solid #dce5f0;border-radius:10px;padding:0 13px;outline:0}.entry input:focus{border-color:#6984fa;box-shadow:0 0 0 3px #3c6dff1a}.micro{font-size:11px;color:#8e9aad;margin-top:9px}.alert{display:none;background:#fff4ee;border:1px solid #f4d3c2;color:#994e2a;border-radius:10px;padding:10px 13px;font-size:12px;margin-top:12px}.alert.visible{display:block}.identity{margin:25px 0 17px;display:flex;justify-content:space-between;align-items:center;gap:13px;flex-wrap:wrap}.profile{display:flex;gap:12px;align-items:center;min-width:0}.platformicon{height:51px;width:51px;border-radius:14px;display:grid;place-items:center;background:var(--accent);color:white;font-weight:800;font-size:19px;flex-shrink:0}.profile h2{font-size:20px;letter-spacing:-.4px;margin:0 0 3px}.profile a{display:block;color:#8c9bb0;font-size:12px;max-width:min(70vw,700px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none}.pillrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.pill{background:#fff;border:1px solid #dee6f0;border-radius:100px;padding:7px 11px;color:#76879a;font-size:11px;white-space:nowrap}.layoutTabs{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border-bottom:1px solid #d9e1ea;margin:0 0 16px}.tabs{display:flex;align-items:center;gap:3px;flex-wrap:wrap}.tab{border:0;border-bottom:3px solid transparent;background:transparent;padding:12px 15px 11px;font-weight:700;color:#65768e;font-size:13px;white-space:nowrap}.tab.active{color:var(--accent);border-bottom-color:var(--accent)}.filters{display:flex;align-items:center;gap:7px;padding:0 0 5px;flex-wrap:wrap}.range{border:1px solid #e0e7ef;border-radius:7px;background:#fff;padding:6px 10px;color:#6d7c8f;font-weight:650;font-size:11px}.range.active{background:#eaf0ff;border-color:#bad0fb;color:#2b56ce}.sectiontop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 14px}.sectiontop h3{font-size:18px;margin:0;font-weight:800}.sectiontop p{margin:3px 0 0;font-size:12px;color:#95a2b2}.sectiontop .date{font-size:11px;color:#7c8da2}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin:0 0 14px}.metric{border:1px solid var(--line);background:#fff;border-radius:13px;padding:19px 19px 16px;min-width:0;min-height:136px;position:relative}.metriclabel{font-size:12px;font-weight:700;color:#7c8ba0}.metricvalue{font-size:31px;letter-spacing:-1px;font-weight:830;line-height:1.3;margin:16px 0 5px;white-space:nowrap}.metricdesc{font-size:10.5px;color:#9ba7b8;line-height:1.5}.boards{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(275px,1fr);gap:14px;margin-bottom:14px}.panel{border:1px solid var(--line);border-radius:13px;padding:20px 22px;background:#fff;min-width:0}.panelhead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}.panel h3{margin:0;font-size:15px}.subtitle{font-size:11px;color:#9aa7b7;margin-top:3px}.selector{font-size:11px;border:1px solid #dfe5ee;padding:7px;border-radius:7px;background:white;color:#65758a;max-width:165px}.chart{min-height:265px;display:flex;align-items:stretch}.svgchart{display:block;width:100%;min-height:250px;height:auto}.empty{width:100%;min-height:225px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:#90a0b3;gap:8px;padding:20px}.empty .symbol{font-size:32px;opacity:.55}.empty strong{font-size:13px;color:#53637a}.empty small{font-size:11px;color:#99a5b5;max-width:360px;line-height:1.8}.barrow{display:flex;align-items:center;justify-content:space-between;font-size:12px;padding:12px 0;border-bottom:1px solid #edf1f6;gap:8px}.barrow:last-child{border:0}.barrow span{color:#8291a4}.barrow strong{color:#35445c}.infoline{margin-top:9px;padding:12px;background:#f6f8fc;border-radius:8px;font-size:11px;line-height:1.8;color:#7c899d}.below{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(275px,1fr);gap:14px}.tableWrap{overflow-x:auto}.table{border-collapse:collapse;width:100%;min-width:480px}.table th,.table td{padding:12px 7px;border-bottom:1px solid #edf1f7;text-align:left;font-size:12px;color:#65758b}.table th{color:#9aa7b8;font-weight:750}.table td:first-child{max-width:280px}.table td a{text-decoration:none;color:#2c57d7}.table td a:hover{text-decoration:underline}.table th:not(:first-child),.table td:not(:first-child){text-align:right}.details{border-top:1px solid #edf1f6;padding-top:10px;margin-top:12px}.details summary{color:#4965a3;font-size:12px;cursor:pointer;font-weight:750}.details p{font-size:11px;color:#74839a;line-height:1.8;overflow-wrap:anywhere}.notice{color:#7a8da4;font-size:11px;line-height:1.8}.footer{color:#97a6b6;font-size:10.5px;text-align:center;margin-top:26px}.tinybadge{border-radius:7px;font-size:10px;background:#f1f5fb;color:#687e9d;padding:4px 7px}.fileinput{display:none}#emptyWelcome{padding:17px;border:1px dashed #d0dce8;background:#fff;border-radius:12px;text-align:center;color:#8a9db1;margin-top:15px}.muted{color:#98a5b6}
 @media(max-width:1100px){.layout{grid-template-columns:198px 1fr}.shell{padding:21px}.top{padding:0 22px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.boards,.below{grid-template-columns:1fr}}
@@ -19,8 +19,25 @@
 @media(max-width:1250px){.audiencePanels{grid-template-columns:1fr 1fr}.audienceCard:last-child{grid-column:span 2}.genderLayout{gap:12px}}
 @media(max-width:740px){.audiencePanels{grid-template-columns:1fr}.audienceCard:last-child{grid-column:span 1}.genderDonut{height:140px;width:140px}.genderCenter{height:96px;width:96px}}
 @media print{.audienceSection,.audienceCard{break-inside:avoid}.audiencePanels{grid-template-columns:1fr 1fr 1fr}}
+
+.platformMix{margin-bottom:14px;padding:18px 22px}
+.platformMix .mixTop{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:11px}
+.platformMix .mixTop h3{margin:0;font-size:15px}
+.platformMix .mixTop p{font-size:11px;color:#92a0b4;margin:2px 0 0}
+.mixGrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.mixItem{border:1px solid #e8edf4;border-radius:10px;padding:12px 13px;background:#fafcff;min-width:0}
+.mixItem b{display:block;font-size:12px;margin:0 0 6px}
+.mixItem strong{font-size:19px;color:#223148}
+.mixItem small{font-size:10px;color:#8797ab;display:block;margin:3px 0 8px}
+.mixTrack{height:5px;border-radius:8px;background:#e9eef5;overflow:hidden}.mixFill{height:100%;border-radius:8px;background:var(--accent)}
+.contentType{color:#7f90a8;font-size:11px;white-space:nowrap}
+.contentName{font-weight:650;color:#27384e}
+.table th:first-child,.table td:first-child{text-align:left}
+.platformContentTag{display:inline-block;border:1px solid #e3e9f4;background:#f7f9fd;border-radius:100px;padding:3px 8px;font-size:10px;color:#536881}
+@media(max-width:1100px){.mixGrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:680px){.mixGrid{grid-template-columns:1fr}.platformMix{padding:13px}}
 </style></head>
-<body><div class="layout"><aside class="sidebar"><div class="brand"><span class="brandIcon">◇</span>CaseLens <span style="font-size:10px;color:#97abc3;font-weight:600">V8</span></div><div><div class="sidecap">WORKSPACE</div><button class="navlink on">▦  账号分析</button><button class="navlink" id="addAccount">＋  添加账号</button></div><div><div class="sidecap">公司案例库</div><div class="accountlist" id="cases"></div></div><div class="sidebarFoot"><div class="disclosure"><div class="disclosureHeading">ⓘ 数据口径</div><div id="disclosureLine">周期指标可能由公开表现推算，不等于平台官方实测。</div><details class="disclosureDetails" id="disclosureDetails"><summary>查看依据 / 调整参数</summary><div id="sources"></div><div id="estimateSummary"></div><details class="integrationDetails"><summary>接口连接状态</summary><div id="integrationList"></div></details></details></div><div class="companyFoot">鑫火智汇 · CaseLens 内部工作台</div></div></aside>
+<body><div class="layout"><aside class="sidebar"><div class="brand"><span class="brandIcon">◇</span>CaseLens <span style="font-size:10px;color:#97abc3;font-weight:600">V9</span></div><div><div class="sidecap">WORKSPACE</div><button class="navlink on">▦  账号分析</button><button class="navlink" id="addAccount">＋  添加账号</button></div><div><div class="sidecap">公司案例库</div><div class="accountlist" id="cases"></div></div><div class="sidebarFoot"><div class="disclosure"><div class="disclosureHeading">ⓘ 数据口径</div><div id="disclosureLine">周期指标可能由公开表现推算，不等于平台官方实测。</div><details class="disclosureDetails" id="disclosureDetails"><summary>查看依据 / 调整参数</summary><div id="sources"></div><div id="estimateSummary"></div><details class="integrationDetails"><summary>接口连接状态</summary><div id="integrationList"></div></details></details></div><div class="companyFoot">鑫火智汇 · CaseLens 内部工作台</div></div></aside>
 <main class="workspace"><div class="top"><div class="breadcrumbs">案例库 / <strong>跨平台账号分析</strong></div><div class="topstate"><span class="statusdot" id="statusdot"></span><span id="statustext">尚未同步</span><span class="pill">CL</span></div></div><div class="shell"><div class="headline"><div><div class="eyebrow">CASE INTELLIGENCE WORKSPACE</div><h1>海外社媒账号分析后台</h1><p>按平台查看概览、内容趋势、粉丝与互动表现</p></div><div class="actions"><button class="button" id="full">全屏展示</button><button class="button dark" id="import">导入分析报表</button><button class="button primary" id="print">导出 PDF</button><input accept=".json,.csv,text/csv,application/json" class="fileinput" id="file" type="file"/></div></div>
 <div class="inputbox"><label class="inputlabel" for="url">社媒账号主页链接</label><div class="entry"><input id="url" placeholder="粘贴 YouTube / Instagram / Facebook / TikTok / LinkedIn / 小红书主页链接"/><button class="button" id="open">打开账号 ↗</button><button class="button primary" id="sync">立即同步数据 ↻</button></div><div class="micro">支持 YouTube / Instagram / Facebook / TikTok / LinkedIn / 小红书 · 内容与粉丝分析</div><div class="alert" id="alert"></div></div>
 <div class="identity"><div class="profile"><div class="platformicon" id="icon">▶</div><div><h2 id="accountname">选择一个社媒账号</h2><a href="#" id="accounturl" rel="noopener noreferrer" target="_blank">输入账号主页链接开始</a></div></div><div class="pillrow"><span class="pill" id="platformchip">YouTube · 数据分析</span><span class="pill" id="updatechip">更新时间：—</span></div></div>
@@ -28,6 +45,7 @@
 <div class="sectiontop"><div><h3 id="sectiontitle">频道概览</h3><p id="sectiondesc">按时间范围查看核心指标、走势和内容表现</p></div><span class="date" id="daterange">—</span></div>
 <div class="metrics" id="metrics"></div>
 <div class="boards"><section class="panel"><div class="panelhead"><div><h3 id="charttitle">数据变化趋势</h3><div class="subtitle" id="chartsubtitle">每日数据趋势</div></div><select aria-label="趋势指标" class="selector" id="chartmetric"></select></div><div class="chart" id="chart"></div></section><section class="panel"><div class="panelhead"><div><h3 id="sideheading">频道信息</h3><div class="subtitle">频道或主页核心信息</div></div></div><div id="detailstats"></div></section></div>
+<section id="platformMix" class="panel platformMix" aria-label="平台专属内容分析"></section>
 <div class="engagementRow"><section class="panel engagementPanel"><div class="panelhead"><div><h3>互动量分析</h3><div class="subtitle">点赞、评论、分享与互动变化</div></div><span class="tinybadge" id="interactionPeriod">近28天</span></div><div class="engagementStats" id="engagementStats"></div><div class="interactionChartTitle">每日互动趋势</div><div class="interactionChart" id="engagementChart"></div></section><section class="panel actionPanel"><div class="panelhead"><div><h3>下个动作 · 运营优化</h3><div class="subtitle">按当前指标结构生成可执行的内容建议</div></div><span class="tinybadge">未来14天</span></div><div class="nextActions" id="nextActions"></div></section></div><section class="panel audienceSection" id="audienceSection"><div class="panelhead"><div><h3>粉丝用户画像</h3><div class="subtitle">地区、性别、年龄层构成与内容受众方向</div></div></div><div class="audiencePanels" id="audiencePanels"></div></section><div class="below"><section class="panel"><div class="panelhead"><div><h3 id="contentheading">内容表现排行</h3><div class="subtitle" id="contentdesc">公开内容表现与排名</div></div><span class="tinybadge" id="postcount">—</span></div><div class="tableWrap" id="posttable"></div></section></div><div class="footer">CaseLens · 账号数据与运营分析</div></div></main></div>
 <script>
 (()=>{'use strict';
@@ -66,18 +84,115 @@ function renderCards(d,p){
 }
 function renderTabs(p){const root=$('tabs');root.replaceChildren();PL[p].tabs.forEach(([s,n])=>{const b=h('button',n,'tab'+(state.section===s?' active':''));b.onclick=()=>{state.section=s;state.trend='';render()};root.append(b)});document.querySelectorAll('.range').forEach(btn=>btn.classList.toggle('active',btn.dataset.range===state.range));$('reportRange').style.display=data()?.report_source?'':'none'}
 function chartOptions(d,p){let metrics=metricRows(d,p,state.section).filter(m=>m.kind!=='public'&&m.kind!=='calculated'&&m.kind!=='percent');return metrics.length?metrics:[F('views','观看次数','周期')]}function drawChart(d,p){const select=$('chartmetric');select.replaceChildren();const opts=chartOptions(d,p);opts.forEach(m=>{const o=h('option',m.label);o.value=m.key;select.append(o)});if(!opts.some(x=>x.key===state.trend))state.trend=opts[0].key;select.value=state.trend;const root=$('chart');root.replaceChildren();const all=periodRows(d).filter(r=>validNum(r[state.trend])!==null),points=all.map(r=>({date:date10(r.date),value:validNum(r[state.trend])}));$('chartsubtitle').textContent='指标：'+(opts.find(x=>x.key===state.trend)?.label||'—')+' · 每日走势';if(points.length<2){const emp=h('div',undefined,'empty');emp.append(h('div','▥','symbol'),h('strong','当前没有可以绘制的每日运营数据'),h('small','公开 API 提供的是频道总量和部分内容累计值。要绘制 Studio 那样的每日趋势，请获得账号授权或导入对应日期的分析报表。'));root.append(emp);return}const w=820,H=300,L=63,R=24,T=15,B=52;const vals=points.map(x=>x.value),lo=Math.min(0,...vals),hi=Math.max(1,...vals)*1.12;const px=i=>L+(w-L-R)*(i/Math.max(1,points.length-1)),py=x=>T+(hi-x)*(H-B-T)/(hi-lo);const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox',`0 0 ${w} ${H}`);svg.classList.add('svgchart');const add=(tag,attrs,txt)=>{const el=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs||{}).forEach(([k,v])=>el.setAttribute(k,String(v)));if(txt!==undefined)el.textContent=txt;svg.append(el);return el};for(let i=0;i<5;i++){const value=hi*(1-i/4),y=py(value);add('line',{x1:L,y1:y,x2:w-R,y2:y,stroke:'#e9edf3','stroke-width':1});add('text',{x:L-10,y:y+4,fill:'#9aa7b8','font-size':11,'text-anchor':'end'},fmt(value))}const line=points.map((x,i)=>(i?'L':'M')+px(i).toFixed(1)+' '+py(x.value).toFixed(1)).join(' ');const area=line+' L'+px(points.length-1).toFixed(1)+' '+py(0).toFixed(1)+' L'+px(0).toFixed(1)+' '+py(0).toFixed(1)+' Z';add('path',{d:area,fill:PL[p].color,opacity:.08});add('path',{d:line,stroke:PL[p].color,fill:'none','stroke-width':2.7,'stroke-linejoin':'round',});points.forEach((x,i)=>{if(points.length<=45||i%Math.ceil(points.length/45)===0)add('circle',{cx:px(i),cy:py(x.value),r:2.7,fill:PL[p].color})});[0,Math.floor((points.length-1)/2),points.length-1].forEach(i=>{add('text',{x:px(i),y:H-20,fill:'#95a1b1','font-size':11,'text-anchor':i===0?'start':i===points.length-1?'end':'middle'},points[i].date)});root.append(svg)}
-function publicRows(d,p){const s=d?.stats||{};const out=[];if(p==='youtube')out.push(['订阅者数量',s.followers],['频道累计观看',s.total_views],['公开视频总数',s.video_count],['已抓取视频',d?.posts?.length]);if(p==='linkedin')out.push(['当前关注者',s.followers],['公司主页',d?.url?'已识别':'—']);if(p==='facebook')out.push(['关注者数量',s.followers],['主页粉丝赞',s.fans]);if(p==='instagram')out.push(['当前粉丝',s.followers],['公开内容数',s.video_count],['正在关注',s.following]);if(p==='tiktok')out.push(['当前粉丝',s.followers],['总获赞',s.total_likes],['公开视频数',s.video_count]);if(p==='xiaohongshu')out.push(['粉丝数量',s.followers],['笔记总数',s.video_count]);return out}
-function renderSide(d,p){
-  const root=$('detailstats');root.replaceChildren();
-  $('sideheading').textContent=p==='xiaohongshu'?'创作者资料':p==='linkedin'?'公司主页信息':p==='facebook'?'主页信息':p==='youtube'?'频道信息':'账号资料';
-  const items=publicRows(d,p);
-  if(!items.length){root.append(h('div','暂无账号资料','infoline'));return}
-  items.forEach(([name,v])=>{
-    const r=h('div',undefined,'barrow');
-    r.append(h('span',name),h('strong',typeof v==='string'?v:fmt(validNum(v))));root.append(r)
-  });
+function publicRows(d,p){
+ const v=d?.stats||{}, m=d?.estimate_model||{}, a=d?.audience||{}, origin=a?.account_origin;
+ const followers=validNum(v.followers), follower=followers??validNum(m.followers_assumed);
+ const fLabel='粉丝数量';
+ const post28=m.posts_per_28d==null?null:Math.round(m.posts_per_28d);
+ const accountCountry=origin?.name||(d?.account_country||null);
+ if(p==='youtube')return [['订阅者数量',v.followers],['频道累计观看',v.total_views],['公开视频总数',v.video_count],['已获取视频',d?.posts?.length??0]];
+ if(p==='instagram')return [[fLabel,follower],[v.video_count==null?'28天内容计划量':'公开内容总数',v.video_count??post28],['账号所在地',accountCountry||'未核实'],['主要内容形态','Reels / 轮播 / 图片']];
+ if(p==='facebook')return [[fLabel,follower],['主页类型','Facebook Page'],['28天内容计划量',post28],['主页内容形式','Reels / 图文 / 链接']];
+ if(p==='tiktok')return [[fLabel,follower],['累计获赞',v.total_likes??'未公开'],[v.video_count==null?'28天视频计划量':'公开视频数量',v.video_count??post28],['主推内容','短视频 / 系列视频']];
+ if(p==='linkedin')return [['关注者数量',follower],['主页类型','LinkedIn 公司主页'],['28天发布计划量',post28],['内容定位','专业文章 / 案例 / 文档']];
+ return [[fLabel,follower],[v.video_count==null?'28天笔记计划量':'公开笔记总数',v.video_count??post28],['主推内容','图文 / 视频笔记'],['核心互动','点赞 / 收藏 / 评论']];
 }
-function postsView(d,p){const root=$('posttable');root.replaceChildren();const ps=Array.isArray(d?.posts)?d.posts.slice().sort((a,b)=>(Number(b.views)||0)-(Number(a.views)||0)).slice(0,12):[];$('postcount').textContent=ps.length+' 条';$('contentheading').textContent=p==='xiaohongshu'?'笔记表现排行':p==='youtube'?'视频内容排行':'内容表现排行';if(!ps.length){const emp=h('div',undefined,'empty');emp.style.minHeight='140px';if(p==='xiaohongshu'){emp.append(h('strong','下一轮笔记测试方向'),h('small','① 真实案例拆解  ② 避坑清单  ③ 3步教程 ｜ 账号真实笔记表现需导入后台报表。'))}else{emp.append(h('strong','当前尚无内容明细'),h('small','如需展示具体帖子排行，请先获取公开内容或导入相关明细。'))}root.append(emp);return}const tbl=h('table',undefined,'table'),th=h('thead'),tr=h('tr');(p==='xiaohongshu'?['笔记标题','阅读量','点赞','评论']:['视频 / 内容','观看次数','点赞','评论']).forEach(s=>tr.append(h('th',s)));th.append(tr);tbl.append(th);const body=h('tbody');ps.forEach(post=>{const r=h('tr'),c=h('td');if(typeof post.url==='string'&&/^https:\/\//.test(post.url)){const a=h('a',String(post.title||'查看内容').slice(0,38));a.href=post.url;a.target='_blank';a.rel='noopener noreferrer';c.append(a)}else c.textContent=String(post.title||'—').slice(0,38);r.append(c,h('td',fmt(validNum(post.views))),h('td',fmt(validNum(post.likes))),h('td',fmt(validNum(post.comments))));body.append(r)});tbl.append(body);root.append(tbl)}
+
+function renderSide(d,p){
+ const root=$('detailstats');root.replaceChildren();
+ $('sideheading').textContent={youtube:'频道信息',instagram:'Instagram 账号资料',facebook:'Facebook 主页资料',tiktok:'TikTok 账号资料',linkedin:'LinkedIn 公司主页',xiaohongshu:'小红书创作者资料'}[p]||'账号资料';
+ const items=publicRows(d,p);
+ for(const [name,v] of items){const r=h('div',undefined,'barrow');const value=typeof v==='string'?v:fmt(validNum(v));r.append(h('span',name),h('strong',value));root.append(r)}
+}
+
+function renderPlatformMix(d,p){
+ const root=$('platformMix');root.replaceChildren();
+ const config={
+  youtube:{title:'YouTube · 内容形式规划',sub:'Shorts、长视频、直播的内容规划与观看结构',items:[['Shorts','快速获取新观众',50],['长视频','观看时长与信任',32],['直播 / 回放','社区互动与订阅',18]]},
+  instagram:{title:'Instagram · 内容类型规划',sub:'Reels、轮播、图片与 Stories 的差异化分析',items:[['Reels','发现与新客触达',46],['轮播 Carousel','收藏与深度互动',29],['图片 Post','品牌视觉与展示',16],['Stories','主页互动与私信',9]]},
+  facebook:{title:'Facebook · 主页内容规划',sub:'Reels、图文、链接帖与主页互动',items:[['Reels / 短视频','内容观看与分享',38],['图片 / 图文帖','评论与心情回应',34],['链接帖','引流与链接点击',20],['直播 / 活动','社区参与',8]]},
+  tiktok:{title:'TikTok · 视频内容规划',sub:'按视频时长与观看行为制定内容组合',items:[['15–30 秒','高频测试前3秒',44],['30–60 秒','教学和场景演示',31],['60 秒以上','系列深度内容',16],['评论回复视频','互动内容扩展',9]]},
+  linkedin:{title:'LinkedIn · 公司主页内容规划',sub:'专业内容、文档案例与 B2B 转化',items:[['行业洞察','展示与专业影响力',30],['客户案例','互动与询盘引导',29],['PDF / 轮播','停留与收藏',26],['产品与团队','主页访问',15]]},
+  xiaohongshu:{title:'小红书 · 笔记内容规划',sub:'图文、视频、搜索与收藏的内容打法',items:[['清单 / 攻略','搜索与收藏',36],['测评 / 对比','阅读与评论',29],['案例 / 经验','口碑与信任',22],['视频笔记','内容曝光',13]]}
+ }[p];
+ if(!config)return;
+ const top=h('div',undefined,'mixTop');const left=h('div');left.append(h('h3',config.title),h('p',config.sub));top.append(left,h('span','内容计划','tinybadge'));root.append(top);
+ const grid=h('div',undefined,'mixGrid');
+ config.items.forEach(([name,desc,pct])=>{
+  const card=h('div',undefined,'mixItem');card.append(h('b',name),h('strong',pct+'%'),h('small',desc));
+  const track=h('div',undefined,'mixTrack'),bar=h('div',undefined,'mixFill');bar.style.width=pct+'%';track.append(bar);card.append(track);grid.append(card)
+ });
+ root.append(grid)
+}
+function postsView(d,p){
+ const root=$('posttable');root.replaceChildren();
+ const ps=Array.isArray(d?.posts)?d.posts.slice().filter(x=>x&&typeof x==='object').sort((a,b)=>(Number(b.views)||0)-(Number(a.views)||0)).slice(0,12):[];
+ const names={youtube:'视频内容排行',instagram:'Reels / 轮播 / 帖子表现',facebook:'Reels / 图文 / 链接内容',tiktok:'短视频表现',linkedin:'公司内容与图文案例',xiaohongshu:'图文 / 视频笔记表现'};
+ $('contentheading').textContent=ps.length?names[p]||'内容表现':({youtube:'视频选题与运营参考',instagram:'Reels / 轮播 / 帖子运营参考',facebook:'Reels / 图文 / 链接运营参考',tiktok:'短视频选题与运营参考',linkedin:'企业内容与案例选题参考',xiaohongshu:'笔记选题与收藏运营参考'}[p]);
+ const schema={
+  youtube:['观看','点赞','评论','分享','views','likes','comments','shares'],
+  instagram:['观看','点赞','评论','收藏','views','likes','comments','saves'],
+  facebook:['观看','回应','评论','分享','views','likes','comments','shares'],
+  tiktok:['播放','点赞','评论','分享','views','likes','comments','shares'],
+  linkedin:['展示','回应','评论','转发','views','likes','comments','shares'],
+  xiaohongshu:['阅读','点赞','收藏','评论','views','likes','saves','comments']
+ }[p];
+ const typeMap={
+  youtube:['Shorts','长视频','教程','Shorts','直播切片'],
+  instagram:['Reels','轮播图','图片帖','Reels','Stories'],
+  facebook:['Reels','图文帖','链接帖','Reels','图片帖'],
+  tiktok:['15–30秒','系列视频','教程视频','对比视频','评论回复'],
+  linkedin:['案例图文','行业洞察','PDF轮播','团队故事','产品方案'],
+  xiaohongshu:['攻略笔记','清单笔记','测评笔记','视频笔记','案例笔记']
+ }[p];
+ const ideas={
+  youtube:['高表现主题的 Shorts 拆解','完整教程 / 方法详解','真实案例与前后对比','高频问题快速回答','创作过程与幕后花絮'],
+  instagram:['15秒呈现产品或空间变化','5页轮播解释用户痛点','高质感实景与细节特写','Reels 制作过程与效果对比','限时动态问答与投票'],
+  facebook:['短视频展示使用场景','图文案例与用户反馈','官网内容与服务入口','直播片段或短视频问答','社区讨论话题与投票'],
+  tiktok:['前3秒结果反差钩子','围绕主题做连续更新','30秒快速解决一个问题','同场景实测与对比','回复高赞评论的视频'],
+  linkedin:['客户项目如何解决具体问题','市场趋势与行业观察','提供实用方法的 PDF 清单','团队和专业能力介绍','技术方案与实施步骤'],
+  xiaohongshu:['真实经验与避坑攻略','可保存的步骤清单','对比测评与使用体验','30秒操作 / 体验过程','真实案例与前后变化']
+ }[p].slice();
+ if(p==='instagram'&&d?.url?.includes('arturel.studio')){
+  ideas.splice(0,ideas.length,'声学艺术如何融入丹麦室内设计','吸音艺术材质与空间效果对比','Arturel 作品与室内实景细节','设计及制作工艺的 Reels 记录','工作室幕后与客户常见问题');
+ }
+ const actual=ps.length>0;
+ $('postcount').textContent=actual?ps.length+' 条公开内容':'5 个内容方向';
+ $('contentdesc').textContent=actual?'账号公开内容排行（仅显示可取得的数据）':'下一轮推荐选题及内容类型，支持对照真实作品优化';
+ const tbl=h('table',undefined,'table');tbl.style.minWidth='620px';
+ const columns=actual?[['内容','title'],...schema.slice(0,4).map((n,i)=>[n,schema[i+4]])]:[['内容形式','type'],['选题方向','title'],...schema.slice(0,3).map((n,i)=>[n,schema[i+4]])];
+ const th=h('thead'),tr=h('tr');columns.forEach(([name])=>tr.append(h('th',name)));th.append(tr);tbl.append(th);
+ const body=h('tbody');
+ const base={youtube:'views',instagram:'views',facebook:'views',tiktok:'video_views',linkedin:'impressions',xiaohongshu:'reads'}[p];
+ const total=valKey(d,base)||0, shares=[.30,.24,.18,.16,.12];
+ const keyMap={views:base,likes:p==='facebook'||p==='linkedin'?'reactions':'likes',comments:'comments',shares:p==='linkedin'?'reposts':'shares',saves:p==='xiaohongshu'?'favorites':'saves'};
+ const rows=actual?ps:ideas.map((title,i)=>{
+   const obj={type:typeMap[i],title};
+   for(const key of Object.values(keyMap))obj[key]=Math.max(0,Math.round((valKey(d,key)||0)*shares[i]));
+   return obj
+ });
+ for(const post of rows){
+  const tr=h('tr');
+  for(const [name,key] of columns){
+   const cell=h('td');
+   if(key==='type'){cell.append(h('span',post.type,'platformContentTag'))}
+   else if(key==='title'){
+    const title=String(post.title||'公开内容').slice(0,65);
+    if(actual&&typeof post.url==='string'&&/^https:\/\//.test(post.url)){
+      const a=h('a',title);a.href=post.url;a.target='_blank';a.rel='noopener noreferrer';cell.append(a)
+    }else cell.append(h('span',title,'contentName'));
+   }else{
+    const sourceKey=keyMap[key]||key;
+    const count=validNum(actual?post[key]:post[sourceKey]);
+    cell.textContent=fmt(count)
+   }
+   tr.append(cell)
+  }
+  body.append(tr)
+ }
+ tbl.append(body);root.append(tbl)
+}
+
 function renderSources(d){
   const root=$('sources');root.replaceChildren();
   $('disclosureLine').textContent=d?.report_source?'已导入账号分析报表；请核对报表口径。':d?.estimate_model?'周期指标包含模型推算，不属于平台官方实测。':'公开信息与运营报表按实际数据来源展示。';
@@ -86,6 +201,7 @@ function renderSources(d){
   box.append(h('b',sourceName(d)));
   box.append(h('div','读取/更新：'+(d.fetched_at?new Date(d.fetched_at).toLocaleString('zh-CN'):'—')));
   if(d?.source)box.append(h('div','数据来源：'+d.source));if(d?.collection_error)box.append(h('div','最近一次联网采集：未成功（'+d.collection_error+'）'));if(d?.platform==='xiaohongshu')box.append(h('div','小红书：无法通过任意账号链接获取官方创作者后台；默认数据是可调整的培训假设，导入授权报表后才有真实周期指标。'));
+  if(d?.audience?.market_basis)box.append(h('div','地区选择依据：'+d.audience.market_basis));
   if(d?.report_source)box.append(h('div','周期报表：'+d.report_source));
   box.append(h('div','互动率口径：互动总量 ÷ '+({youtube:'观看次数',tiktok:'视频观看次数',facebook:'覆盖人数',instagram:'覆盖人数',linkedin:'展示量',xiaohongshu:'阅读量（赞+藏+评+转）'}[d.platform]||'对应指标')+'。'));
   if(d?.audience)box.append(h('div','受众画像：'+(d.audience.source==='authorized'?'授权聚合数据':d.audience.source==='mixed-authorized-and-training'?'部分授权数据、其余培训假设':d.audience.source==='imported'?'人工导入':'内部培训假设（非实际粉丝构成）')));
@@ -114,9 +230,9 @@ function renderEstimateSummary(d){
   const fields=[['followers','粉丝基准','例如 10000'],['posts_per_month','近28天发文量','例如 8'],['views_per_post','单条内容观看基准','例如 5000'],['views_28d','近28天观看基准','可留空'],['female_pct','女性占比（0–100）','如 55']];
   const inputs={};
   for(const [key,label,placeholder] of fields){const wrap=h('label');wrap.append(h('span',label));const input=h('input');input.type='number';input.min='0';input.step='any';input.placeholder=placeholder;input.value=m.assumptions?.[key]??'';wrap.append(input);inputs[key]=input;form.append(wrap)}
-  const marketWrap=h('label');marketWrap.append(h('span','画像目标市场（培训情景）'));const marketSelect=h('select');marketSelect.className='marketSelect';
-  for(const [v,label] of [['global','全球'],['china','中国内地'],['north_america','北美'],['southeast_asia','东南亚'],['europe','欧洲'],['hong_kong','香港'],['japan','日本'],['australia','澳新'],['africa','非洲']]){const o=h('option',label);o.value=v;marketSelect.append(o)}
-  marketSelect.value=m.assumptions?.market||(plat()==='xiaohongshu'?'china':'global');marketWrap.append(marketSelect);form.append(marketWrap);
+  const marketWrap=h('label');marketWrap.append(h('span','地区画像的培训市场（优先参考账号所在地）'));const marketSelect=h('select');marketSelect.className='marketSelect';
+  for(const [v,label] of [['auto','根据账号自动选择'],['denmark','丹麦及周边欧洲'],['germany','德国及周边'],['united_kingdom','英国及周边'],['united_states','美国及周边'],['canada','加拿大及周边'],['netherlands','荷兰及周边'],['uae','阿联酋与海湾国家'],['malaysia','马来西亚及周边'],['singapore','新加坡及周边'],['global','全球多国'],['china','中国内地'],['north_america','北美'],['southeast_asia','东南亚'],['europe','欧洲'],['hong_kong','香港'],['japan','日本'],['australia','澳新'],['africa','非洲']]){const o=h('option',label);o.value=v;marketSelect.append(o)}
+  marketSelect.value=m.assumptions?.market||'auto';marketWrap.append(marketSelect);form.append(marketWrap);
   const apply=h('button','更新分析数据','button primary');apply.type='button';
   apply.onclick=async()=>{
     apply.disabled=true;apply.textContent='更新中…';
@@ -205,7 +321,7 @@ function renderAudience(d,p){
 }
 function renderIntegrations(){const root=$('integrationList');if(!root)return;root.replaceChildren();for(const key of ['youtube','instagram','facebook','tiktok','linkedin','xiaohongshu']){const s=state.integrations?.[key]||{};const line=h('div',undefined,'integrationItem');const dot=h('i');dot.className=s.official?'ok':s.public?'partial':'off';line.append(dot,h('span',PL[key]?.name||key),h('b',s.official?'凭据已配置（未实测）':s.public?'采集密钥已配置（未实测）':s.import?'报表导入 / 培训数据':'仅培训情景'));root.append(line)}}
 async function loadIntegrations(){try{const r=await fetch('/api/integrations',{cache:'no-store'});const j=await r.json();if(r.ok){state.integrations=j.items||{};renderIntegrations()}}catch(e){console.warn('接口状态不可用',e)}}
-function render(){listCases();const d=data(),p=plat(),obj=PL[p]||PL.youtube;document.documentElement.style.setProperty('--accent',obj.color);$('icon').style.background=obj.color;$('icon').textContent=obj.icon;$('accountname').textContent=d?.name||current()?.name||'选择一个社媒账号';const url=d?.url||current()?.url||'';$('accounturl').textContent=url||'输入账号主页链接开始';$('accounturl').href=url||'#';if(current())$('url').value=current().url;$('platformchip').textContent=obj.name+' · 分析工作台';$('updatechip').textContent='更新时间：'+(d?.fetched_at?new Date(d.fetched_at).toLocaleString('zh-CN'):'—');$('statustext').textContent=d?'已更新':'尚未同步';$('statusdot').classList.toggle('ready',!!d);if(!PL[p].tabs.some(x=>x[0]===state.section))state.section=PL[p].tabs[0][0];renderTabs(p);const tab=PL[p].tabs.find(x=>x[0]===state.section);$('sectiontitle').textContent=tab?.[1]+'分析';$('sectiondesc').textContent='查看当前周期的内容、互动和增长表现';$('daterange').textContent=periodLabel(d);renderEstimateSummary(d);renderCards(d,p);drawChart(d,p);renderSide(d,p);renderEngagement(d,p);renderActions(d,p);renderAudience(d,p);postsView(d,p);renderSources(d);renderIntegrations()}
+function render(){listCases();const d=data(),p=plat(),obj=PL[p]||PL.youtube;document.documentElement.style.setProperty('--accent',obj.color);$('icon').style.background=obj.color;$('icon').textContent=obj.icon;$('accountname').textContent=d?.name||current()?.name||'选择一个社媒账号';const url=d?.url||current()?.url||'';$('accounturl').textContent=url||'输入账号主页链接开始';$('accounturl').href=url||'#';if(current())$('url').value=current().url;$('platformchip').textContent=obj.name+' · 分析工作台';$('updatechip').textContent='更新时间：'+(d?.fetched_at?new Date(d.fetched_at).toLocaleString('zh-CN'):'—');$('statustext').textContent=d?'已更新':'尚未同步';$('statusdot').classList.toggle('ready',!!d);if(!PL[p].tabs.some(x=>x[0]===state.section))state.section=PL[p].tabs[0][0];renderTabs(p);const tab=PL[p].tabs.find(x=>x[0]===state.section);$('sectiontitle').textContent=tab?.[1]+'分析';$('sectiondesc').textContent=({youtube:'视频观看、订阅与内容增长',instagram:'Reels / 轮播 / 图片、粉丝与互动',facebook:'主页覆盖、Reels、帖子互动与关注',tiktok:'视频播放、完播、互动与涨粉',linkedin:'公司内容展示、访客与线索',xiaohongshu:'笔记曝光、阅读、收藏与粉丝增长'}[p]);$('daterange').textContent=periodLabel(d);renderEstimateSummary(d);renderCards(d,p);drawChart(d,p);renderSide(d,p);renderPlatformMix(d,p);renderEngagement(d,p);renderActions(d,p);renderAudience(d,p);postsView(d,p);renderSources(d);renderIntegrations()}
 async function sync(){unmessage();const a=parseUrl($('url').value.trim());if(!a){message('请输入有效的 YouTube / Instagram / Facebook / TikTok / LinkedIn / 小红书账号主页链接');return}const existing=state.cases.find(x=>x.url===a.url);addCase(a,existing?.data||null);const btn=$('sync');btn.disabled=true;btn.textContent='正在联网读取…';try{const r=await fetch('/api/profile?url='+encodeURIComponent(a.url),{cache:'no-store'});let d=await r.json();if(!r.ok)throw Error(d.error||'获取失败');if(d.pending){for(let n=0;n<45&&d.pending;n++){await new Promise(resolve=>setTimeout(resolve,4000));const j=await fetch('/api/job?id='+encodeURIComponent(d.job_id),{cache:'no-store'});d=await j.json();if(!j.ok)throw Error(d.error||'采集任务失败')}if(d.pending)throw Error('公开数据采集尚未完成，请稍后再试')}addCase(a,d);await loadCases(a.url)}catch(e){try{const fallback=await fetch('/api/estimate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:a.url,assumptions:{}})});const fd=await fallback.json();if(!fallback.ok)throw Error(fd.error||'训练估算失败');fd.collection_error=String(e.message||'采集失败').slice(0,160);addCase(a,fd);await loadCases(a.url);if(current()?.data){current().data.collection_error=fd.collection_error;render()}unmessage()}catch(e2){message('数据未能获取，训练估算也失败：'+e2.message)}}finally{btn.disabled=false;btn.textContent='立即同步数据 ↻'}}
 async function loadCases(selected){try{const r=await fetch('/api/cases',{cache:'no-store'});if(!r.ok)return;const res=await r.json();if(!Array.isArray(res.items))return;state.cases=res.items;state.index=state.cases.findIndex(x=>x.url===(selected||current()?.url));if(state.index<0)state.index=state.cases.length?0:-1;if(state.index>=0){state.platform=state.cases[state.index].platform;state.section=PL[state.platform].tabs[0][0];state.range=state.cases[state.index].data?.report_source?'report':'28'}render()}catch(e){console.warn('案例读取失败',e)}}
 function csvRows(txt){const alias={'日期':'date','Date':'date','Day':'date','date':'date','Views':'views','观看次数':'views','观看量':'views','笔记阅读量':'reads','笔记阅读':'reads','阅读量':'reads','阅读次数':'reads','笔记曝光量':'impressions','曝光量':'impressions','曝光次数':'impressions','笔记互动量':'interactions','互动量':'interactions','封面点击率':'ctr','点击率':'ctr','笔记收藏量':'favorites','收藏量':'favorites','收藏':'favorites','笔记点赞':'likes','点赞量':'likes','点赞':'likes','评论':'comments','笔记评论量':'comments','分享':'shares','分享量':'shares','搜索阅读':'search_reads','推荐阅读':'recommend_reads','关注页阅读':'follow_reads','主页访问':'profile_visits','Engaged views':'engaged_views','深度观看次数':'engaged_views','Impressions':'impressions','展示量':'impressions','Reach':'reach','覆盖人数':'reach','Likes':'likes','赞':'likes','Reactions':'reactions','回应量':'reactions','Comments':'comments','评论量':'comments','Shares':'shares','Reposts':'reposts','转发':'reposts','Watch time (hours)':'watch_time_hours','观看时长（小时）':'watch_time_hours','Subscribers':'subscribers_net','新增订阅':'subscribers_gained','New followers':'new_followers','新增粉丝':'new_followers'};let lines=txt.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n').trim().split('\n');if(lines.length<2)throw Error('CSV 至少需要表头和一行有效数据');function cells(line){const out=[];let buf='',quote=false;for(let i=0;i<line.length;i++){const c=line[i];if(c==='\"'){if(quote&&line[i+1]==='\"'){buf+='\"';i++}else quote=!quote}else if(c===','&&!quote){out.push(buf.trim());buf=''}else buf+=c}out.push(buf.trim());return out}let header=cells(lines.shift()).map(k=>alias[k]||k);if(!header.includes('date'))throw Error('CSV 必须有 date / 日期 / Date 列');const out=[];for(const line of lines){if(!line.trim())continue;const row=cells(line),obj={};header.forEach((k,i)=>{if(k==='date')obj.date=row[i]?.trim();else{const n=validNum(String(row[i]||'').replaceAll(',',''));if(n!==null)obj[k]=n}});if(/^\d{4}-\d{2}-\d{2}$/.test(obj.date))out.push(obj)}if(!out.length)throw Error('无有效日期数据，请使用 YYYY-MM-DD 格式');return out.sort((a,b)=>a.date.localeCompare(b.date))}

@@ -5,7 +5,7 @@ account-informed estimate; one without public data gets a *generic training
 scenario* with explicitly disclosed, adjustable assumptions.
 """
 from datetime import datetime, timedelta, timezone
-from audience import estimate_audience
+from audience import estimate_audience, origin_context
 import hashlib
 import math
 import random
@@ -210,7 +210,7 @@ def estimate(profile, account, assumptions=None):
            'public_recent_posts':len(recents), 'public_recent_posts_90d':active90,
            'generated_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
            'assumptions':{k:v for k,v in assumptions.items() if k in ('followers','posts_per_month','views_per_post','views_28d','market','female_pct')}}
-    return {'series':series,'estimate_model':model, 'estimate_notes':note, 'audience':estimate_audience(account,assumptions)}
+    return {'series':series,'estimate_model':model, 'estimate_notes':note, 'audience':estimate_audience(account,assumptions,profile)}
 
 
 def scenario_profile(account, reason=None):

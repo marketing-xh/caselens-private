@@ -17,7 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from estimator import estimate, scenario_profile
-from audience import estimate_audience, normalized_audience, MARKETS
+from audience import estimate_audience, normalized_audience, MARKETS, origin_context
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv('CASELENS_DB_PATH', str(ROOT / 'history.sqlite3')))
@@ -311,8 +311,9 @@ def list_cases():
     res=[]
     for url, plat, acct, name, payload, updated_at in rows:
         obj=json.loads(payload)
-        if not obj.get('audience'):
-            try:obj['audience']=estimate_audience(parse_account(url),(obj.get('estimate_model') or {}).get('assumptions'))
+        aobj=obj.get('audience')
+        if (not aobj or (aobj.get('source')=='training-scenario' and aobj.get('version',0)<9)) and not obj.get('report_source'):
+            try:obj['audience']=estimate_audience(parse_account(url),(obj.get('estimate_model') or {}).get('assumptions'),obj)
             except ValueError:pass
         obj['history']=read_history(plat, acct) or obj.get('history', [])
         res.append({'url':url, 'platform':plat, 'name':name, 'data':obj})
@@ -401,6 +402,32 @@ def bd_trigger(a):
     return {'pending':True,'job_id':jid,'message':'正在采集当前公开资料，结果取决于平台页面可访问性。'}
 
 
+def extract_public_posts(record, platform):
+    """Keep only provider-returned post details; never fabricate URLs or metrics."""
+    if not isinstance(record,dict): return []
+    candidates=[]
+    for key in ('posts','recent_posts','latest_posts','media','publications','videos','recent_videos'):
+        val=record.get(key)
+        if isinstance(val,dict): val=val.get('items') or val.get('data')
+        if isinstance(val,list): candidates.extend(x for x in val if isinstance(x,dict))
+    result=[]
+    for post in candidates[:50]:
+        text=get_first(post,'title','caption','description','text','message')
+        src=get_first(post,'url','link','permalink','post_url','video_url')
+        if not isinstance(src,str) or not src.startswith('https://'):src=None
+        item={'title':str(text or '公开内容').strip()[:110],
+              'views':numeric_field(post,'views','view_count','plays','video_views','play_count','impressions','reach'),
+              'likes':numeric_field(post,'likes','like_count','reactions'),
+              'comments':numeric_field(post,'comments','comments_count','comment_count'),
+              'shares':numeric_field(post,'shares','share_count','reposts'),
+              'saves':numeric_field(post,'saves','saves_count','saved','favorites'),
+              'date':get_first(post,'date','timestamp','taken_at','create_time','created_at')}
+        if src:item['url']=src
+        if any(item.get(k) is not None for k in ('views','likes','comments','shares','saves')):
+            result.append(item)
+        if len(result)>=20:break
+    return result
+
 def bd_process(a, raw):
     if isinstance(raw,dict):
         if 'data' in raw and isinstance(raw['data'],list):
@@ -443,9 +470,12 @@ def bd_process(a, raw):
         stats={'followers':followers,'fans':fans}
     if not any(v is not None for v in stats.values()):
         raise ValueError('公开记录已返回，但未获得可核验的数值指标；请检查 Bright Data 的字段和采集结果。')
+    # Location metadata only reflects account origin; it does not expose audience insights.
+    origin=get_first(d,'country','country_name','location_country')
+    if not isinstance(origin,str):origin=None
     # Avoid implying official verification or exactly live telemetry
-    return {'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image','profile_image_url','profile_pic_url'),
-        'stats':stats,'posts':[], 'quality':'public-third-party',
+    return {'account_country':origin,'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image','profile_image_url','profile_pic_url'),
+        'stats':stats,'posts':extract_public_posts(d,a['platform']), 'quality':'public-third-party',
         'source':'Bright Data · 公开页面采集（非平台官方后台）',
         'references':[a['url']], 'provider_data_date':get_first(d,'timestamp','updated_at','scraped_at'),
         'notes':['取自可访问的公开页面，可能存在平台缓存或采集延迟。',
@@ -501,7 +531,7 @@ def finish_direct(a, result):
         mixed['source']='authorized' if all(original_audience.get(k) for k in ('countries','genders','ages')) else 'mixed-authorized-and-training'
         result['audience']=mixed
     elif not result.get('audience'):
-        result['audience']=estimate_audience(a,(result.get('estimate_model') or {}).get('assumptions'))
+        result['audience']=estimate_audience(a,(result.get('estimate_model') or {}).get('assumptions'),result)
     result['account']=a
     result['fetched_at']=now()
     result['history']=store_and_history(a,result['stats'])
@@ -644,7 +674,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise ValueError('当前账号已有导入的真实分析报表，不能用预估覆盖。')
                 market=raw_assumptions.get('market')
                 if market is not None:
-                    if not isinstance(market,str) or market not in MARKETS:raise ValueError('目标市场选择无效')
+                    if not isinstance(market,str) or market not in MARKETS and market!='auto':raise ValueError('目标市场选择无效')
                     asum['market']=market
                 if 'female_pct' in asum and asum['female_pct']>100:raise ValueError('女性比例不能超过100%')
                 d.update(estimate(d,a,asum))
