@@ -30,7 +30,8 @@ def _round(v):
 
 def _mix_values(platform, views, followers, p, observed=None):
     r = {'youtube': (0.028, 0.005, 0.0008), 'tiktok': (0.065, 0.008, 0.0013),
-         'facebook': (0.028, 0.006, 0.0008), 'instagram': (0.057, 0.006, 0.0010), 'linkedin': (0.035, 0.012, 0.0006)}
+         'facebook': (0.028, 0.006, 0.0008), 'instagram': (0.057, 0.006, 0.0010), 'linkedin': (0.035, 0.012, 0.0006),
+         'xiaohongshu': (0.063, 0.006, 0.0025)}
     l, c, f = r[platform]
     if observed:
         # Public video engagement is cumulative, so these ratios are only
@@ -40,6 +41,18 @@ def _mix_values(platform, views, followers, p, observed=None):
     likes = _round(views * l)
     comments = _round(views * c)
     gained = _round(views * f)
+    if platform == 'xiaohongshu':
+        reads=_round(views)
+        impressions=_round(views*3.2)
+        saves=_round(views*.029)
+        shares=_round(views*.009)
+        return {'impressions':impressions,'reads':reads,'ctr':round(100*reads/max(1,impressions),1),
+                'likes':likes,'favorites':saves,'comments':comments,'shares':shares,
+                'interactions':likes+saves+comments+shares,'new_followers':gained,
+                'unfollows':_round(gained*.21),'profile_visits':_round(views*.04),
+                'search_reads':_round(views*.27), 'recommend_reads':_round(views*.61),
+                'follow_reads':_round(views*.12), 'note_count':_round(p/28),
+                'engagement_rate':round(100*(likes+saves+comments+shares)/max(1,reads),2)}
     if platform == 'youtube':
         return {'views': _round(views), 'engaged_views': _round(views*0.51),
                 'likes':likes, 'comments':comments, 'shares':_round(views*.0035), 'subscribers_gained':gained,
@@ -97,8 +110,11 @@ def estimate(profile, account, assumptions=None):
         followers=public_followers
         follower_basis='当前公开/授权粉丝基准'
     else:
-        followers=10000.0
-        follower_basis='缺少粉丝公开数据，采用10,000训练假设'
+        # Stable but explicitly hypothetical account-specific base for internal training.
+        # No inference of an actual person's followers is being made here.
+        stable=int(hashlib.sha256((account['url']+'|followers-v8').encode('utf-8')).hexdigest()[:8],16)
+        followers=float(2000 + 100 * (stable % 650))
+        follower_basis='该账号无可核实粉丝数，按账号链接生成稳定的培训假设（非真实粉丝）'
     recents=[x for x in profile.get('posts', []) if isinstance(x,dict) and _num(x.get('views')) is not None]
     recent_views=[_num(x.get('views')) for x in recents]
     median_views=statistics.median(recent_views) if recent_views else None
@@ -124,7 +140,7 @@ def estimate(profile, account, assumptions=None):
         posts28=_bound(active90*28/90,1,90)
         posts_basis='近期公开视频发布频率推算'
     else:
-        posts28=8.0 if platform in ('youtube','tiktok','instagram') else 10.0
+        posts28=8.0 if platform in ('youtube','tiktok','instagram') else 12.0 if platform=='xiaohongshu' else 10.0
         posts_basis='平台通用发布频率假设'
     manual_avg=_num(assumptions.get('views_per_post'))
     if manual_avg is not None:
@@ -134,12 +150,12 @@ def estimate(profile, account, assumptions=None):
         average=max(1,median_views)
         video_basis='最近可读取内容的累计观看中位数（不是周期内观看）'
     else:
-        average=max(50,followers*({'youtube':.11,'tiktok':.44,'facebook':.16,'instagram':.30,'linkedin':.09}[platform]))
+        average=max(50,followers*({'youtube':.11,'tiktok':.44,'facebook':.16,'instagram':.30,'linkedin':.09,'xiaohongshu':.38}[platform]))
         video_basis='缺少公开内容，按粉丝规模使用通用经验假设'
     # Only a portion of each post's cumulative views plausibly arises in a given window.
     if platform=='linkedin':
         month_views=posts28*average*.75
-    elif platform in ('facebook','instagram'):
+    elif platform in ('facebook','instagram','xiaohongshu'):
         month_views=posts28*average*.85
     else:
         month_views=posts28*average*.63 + followers*({'youtube':.13,'tiktok':.22}[platform])

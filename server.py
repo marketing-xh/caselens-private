@@ -62,6 +62,12 @@ def parse_account(raw):
         if not re.fullmatch(r'[\w.\-]{2,100}', ident):
             raise ValueError('YouTube 账号格式不正确')
         return {'platform': 'youtube', 'id': ident, 'kind': kind, 'url': f'https://www.youtube.com/{"@" + ident if kind == "handle" else kind + "/" + ident}'}
+    if host in ('xiaohongshu.com', 'xiaohongshu.cn'):
+        # User profiles only; /explore/ and /discovery/item/ are posts, not account URLs.
+        if len(bits) >= 3 and bits[0].lower() == 'user' and bits[1].lower() == 'profile' and re.fullmatch(r'[A-Za-z0-9_-]{8,80}', bits[2]):
+            ident=bits[2]
+            return {'platform':'xiaohongshu','id':ident,'kind':'user_profile','url':'https://www.xiaohongshu.com/user/profile/'+ident}
+        raise ValueError('小红书请使用账号主页完整链接，例如 https://www.xiaohongshu.com/user/profile/账号ID；笔记链接和短链暂不支持。')
     if host in ('linkedin.com', 'cn.linkedin.com'):
         if len(bits) >= 2 and bits[0] in ('company', 'showcase') and re.fullmatch(r'[\w.\-]{2,100}', bits[1]):
             return {'platform': 'linkedin', 'id': bits[1], 'kind': 'company', 'url': 'https://www.linkedin.com/company/' + bits[1] + '/'}
@@ -85,7 +91,7 @@ def parse_account(raw):
         if not re.fullmatch(r'[\w.\-]{2,140}', ident) or ident in ('watch', 'reel', 'share', 'groups'):
             raise ValueError('Facebook 请使用 Page 主页链接')
         return {'platform': 'facebook', 'id': ident, 'kind': 'page', 'url': ('https://www.facebook.com/profile.php?id='+ident if bits and bits[0]=='profile.php' else f'https://www.facebook.com/{ident}')}
-    raise ValueError('请使用 YouTube / TikTok / Instagram / Facebook / LinkedIn 账号主页链接')
+    raise ValueError('请使用 YouTube / TikTok / Instagram / Facebook / LinkedIn / 小红书 账号主页链接')
 
 
 def get_json(url, token=None):
@@ -243,7 +249,8 @@ def ig_fetch(a,cfg):
 
 def integration_status(cfg):
     bd=bool(os.getenv('BRIGHTDATA_API_TOKEN'))
-    return {'youtube':{'official':bool(os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key')),'public':False},
+    return {'xiaohongshu':{'official':False,'public':False,'import':True,'reason':'创作者分析尚无通用开放接口；支持后台报表导入与培训情景'},
+            'youtube':{'official':bool(os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key')),'public':False},
             'instagram':{'official':bool(os.getenv('INSTAGRAM_ACCESS_TOKEN') and os.getenv('INSTAGRAM_IG_USER_ID')),'public':bd},
             'facebook':{'official':bool(cfg.get('facebook_pages') or (os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'))),'public':bd},
             'tiktok':{'official':bool(os.getenv('TIKTOK_ACCESS_TOKEN') or cfg.get('tiktok',{}).get('access_token')),'public':bd},
@@ -380,7 +387,8 @@ def bd_trigger(a):
     ds=os.getenv('BRIGHTDATA_'+a['platform'].upper()+'_DATASET_ID', BD_DATASETS[a['platform']])
     endpoint='https://api.brightdata.com/datasets/v3/trigger?'+urlencode({'dataset_id':ds,'format':'json'})
     bd_url=(a['url'].rstrip('/')+'/about') if a['platform']=='youtube' else a['url']
-    obj=bd_call(endpoint, [{'url':bd_url}])
+    payload=[{'url':bd_url,'country':''}] if a['platform']=='tiktok' else [{'url':bd_url}]
+    obj=bd_call(endpoint, payload)
     sid=obj.get('snapshot_id') if isinstance(obj,dict) else None
     if not sid or not re.fullmatch(r's_[a-zA-Z0-9_\-]{5,120}', sid):
         raise ValueError('公开数据服务未返回采集任务编号，请检查账号权限和余额。')
@@ -547,7 +555,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path=='/api/integrations':
             return self.send_json(200,{'items':integration_status(config())})
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V7','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V8','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -558,6 +566,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, bd_check_job(jid))
             if u.path=='/api/profile':
                 a=parse_account(parse_qs(u.query).get('url',[''])[0]); cfg=config()
+                if a['platform']=='xiaohongshu':
+                    # Never treat an OAuth login token as access to private creator metrics.
+                    # Use training scenario; imported analytics is preserved on refresh.
+                    return self.send_json(200, finish_direct(a,scenario_profile(a,'小红书账号的周期阅读、曝光、粉丝画像不提供任意链接公开读取；可导入本人后台报表。')))
                 if a['platform']=='linkedin':
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
                         return self.send_json(202,bd_trigger(a))
@@ -663,7 +675,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V7: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V8: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if not os.getenv('CASELENS_PASSWORD'):

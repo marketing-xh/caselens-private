@@ -6,6 +6,7 @@ import hashlib
 import random
 
 MARKETS = {
+    'china': [('广东',24),('上海',17),('北京',15),('浙江',14),('江苏',12),('其他',18)],
     'global': [('美国',28),('印度',20),('英国',13),('印度尼西亚',12),('菲律宾',9),('其他',18)],
     'north_america':[('美国',62),('加拿大',22),('墨西哥',9),('其他',7)],
     'southeast_asia':[('印度尼西亚',25),('马来西亚',23),('新加坡',19),('泰国',14),('菲律宾',11),('其他',8)],
@@ -18,10 +19,10 @@ MARKETS = {
 AGE_KEYS=['13–17','18–24','25–34','35–44','45–54','55–64','65+']
 AGE_BASE={
     'youtube':[5,20,29,23,12,7,4], 'tiktok':[12,33,29,15,7,3,1],
-    'instagram':[8,30,32,18,8,3,1], 'facebook':[3,15,25,26,17,9,5],
+    'instagram':[8,30,32,18,8,3,1], 'xiaohongshu':[5,28,37,20,7,2,1], 'facebook':[3,15,25,26,17,9,5],
     'linkedin':[0,13,37,30,15,4,1]
 }
-FEMALE={'youtube':44,'tiktok':55,'instagram':56,'facebook':52,'linkedin':46}
+FEMALE={'youtube':44,'tiktok':55,'instagram':56,'xiaohongshu':68,'facebook':52,'linkedin':46}
 
 def _scale(items):
     vals=[max(0.0,float(v)) for _,v in items]
@@ -36,7 +37,7 @@ def _scale(items):
 def estimate_audience(account, assumptions=None):
     """Stable default scenario. Parameters describe *intended training market*, not geo detection."""
     assumptions=assumptions or {}
-    market=assumptions.get('market','global')
+    market=assumptions.get('market','china' if account['platform']=='xiaohongshu' else 'global')
     if market not in MARKETS:market='global'
     platform=account['platform']
     seed=int(hashlib.sha256((account['url']+'|audience-v7').encode()).hexdigest()[:12],16)
