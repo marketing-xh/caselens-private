@@ -62,6 +62,10 @@ def parse_account(raw):
         if not re.fullmatch(r'[\w.\-]{2,100}', ident):
             raise ValueError('YouTube 账号格式不正确')
         return {'platform': 'youtube', 'id': ident, 'kind': kind, 'url': f'https://www.youtube.com/{"@" + ident if kind == "handle" else kind + "/" + ident}'}
+    if host in ('linkedin.com', 'cn.linkedin.com'):
+        if len(bits) >= 2 and bits[0] in ('company', 'showcase') and re.fullmatch(r'[\w.\-]{2,100}', bits[1]):
+            return {'platform': 'linkedin', 'id': bits[1], 'kind': 'company', 'url': 'https://www.linkedin.com/company/' + bits[1] + '/'}
+        raise ValueError('LinkedIn 请使用 /company/公司名称 的公司主页链接；个人账号的后台指标需单独授权。')
     if host == 'tiktok.com':
         if not bits or not bits[0].startswith('@'):
             raise ValueError('TikTok 请使用 /@账号 的主页链接')
@@ -190,6 +194,22 @@ def sql(conn, stmt, args=()):
     if DATABASE_URL:
         stmt = stmt.replace('?', '%s')
     return conn.execute(stmt, args)
+
+
+def retain_imported_report(a, result):
+    # Preserve manually imported time-bound analytics when refreshing public profiles.
+    try:
+        with db_conn() as conn:
+            row=sql(conn, 'SELECT payload FROM cases WHERE platform=? AND account=? ORDER BY updated_at DESC LIMIT 1', (a['platform'], a['id'].lower())).fetchone()
+        if row:
+            previous=json.loads(row[0])
+            if previous.get('report_source') or previous.get('analytics') or previous.get('series'):
+                for k in ('analytics','series','audience','report_start','report_end','report_source','report_notes'):
+                    if k in previous:
+                        result[k]=previous[k]
+    except (OSError,ValueError,TypeError):
+        pass
+    return result
 
 
 def save_case(a, result):
@@ -352,6 +372,7 @@ def bd_check_job(jid):
         raise ValueError('公开数据采集失败；页面可能受限制或不支持此账号。')
     raw=bd_call('https://api.brightdata.com/datasets/v3/snapshot/'+sid+'?format=json')
     a=item['a']; payload=bd_process(a,raw)
+    payload=retain_imported_report(a,payload)
     payload['account']=a
     payload['fetched_at']=now()
     payload['history']=store_and_history(a,payload['stats'])
@@ -361,6 +382,7 @@ def bd_check_job(jid):
 
 
 def finish_direct(a, result):
+    result=retain_imported_report(a,result)
     result['account']=a
     result['fetched_at']=now()
     result['history']=store_and_history(a,result['stats'])
@@ -412,7 +434,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             return self.wfile.write(b)
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V3','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V4','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -423,6 +445,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, bd_check_job(jid))
             if u.path=='/api/profile':
                 a=parse_account(parse_qs(u.query).get('url',[''])[0]); cfg=config()
+                if a['platform']=='linkedin':
+                    raise ValueError('LinkedIn 公司主页后台数据需要已授权的组织 API 权限；目前支持在本后台导入 LinkedIn 分析报表。仅凭公司链接不能取得私有报表。')
                 if a['platform']=='youtube':
                     if os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key'):
                         return self.send_json(200,finish_direct(a,yt_fetch(a,cfg)))
@@ -476,9 +500,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V3: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V4: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
-        print('NOTE: SQLite is used; configure Replit SQL DATABASE_URL for persistent cloud history.')
+        print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if not os.getenv('CASELENS_PASSWORD'):
         print('WARNING: CASELENS_PASSWORD is not configured; the app will refuse public access.')
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
