@@ -398,7 +398,30 @@ def bd_call(url, data=None):
         with urlopen(req, timeout=25) as r:
             return json.loads(r.read(5_000_000))
     except HTTPError as ex:
-        raise ValueError('公开数据提供商接口错误 HTTP '+str(ex.code)+'；检查账号配额或数据服务权限。') from ex
+        # Display a bounded, redacted provider error to distinguish auth,
+        # entitlement and input-schema failures; never expose the API token.
+        try:
+            detail_raw=ex.read(1200).decode('utf-8', 'replace')
+            try:
+                detail_json=json.loads(detail_raw)
+                if isinstance(detail_json, dict):
+                    detail=str(detail_json.get('message') or detail_json.get('error') or detail_json.get('detail') or '')
+                else:
+                    detail=''
+            except (ValueError, TypeError):
+                detail=''
+            detail=detail.replace(tok, '[密钥已隐藏]')[:150]
+        except Exception:
+            detail=''
+        if ex.code==401:
+            tip='身份认证未通过；请核对 Render 的 BRIGHTDATA_API_TOKEN 与 Bright Data 当前 API 密钥是否一致。'
+        elif ex.code==403:
+            tip='访问被拒绝；请检查账户是否具备该数据集权限。'
+        elif ex.code==400:
+            tip='请求参数不符合服务接口要求；需要核对数据集及输入字段。'
+        else:
+            tip='检查账户权限、数据集配置或使用额度。'
+        raise ValueError('公开数据服务 HTTP '+str(ex.code)+'：'+tip+(' 服务提示：'+detail if detail else '')) from ex
     except URLError as ex:
         raise ValueError('公开数据服务暂时无法连接：'+str(ex.reason)) from ex
 
@@ -409,7 +432,9 @@ def _bd_start(ds, inputs, discovery=None, limit=18):
     if discovery:
         query.update({'type':'discover_new','discover_by':discovery})
     endpoint='https://api.brightdata.com/datasets/v3/trigger?'+urlencode(query)
-    body={'input':inputs,'limit_per_input':limit} if discovery else {'input':inputs}
+    # Standard URL-based collection expects a JSON list, not {'input': [...]}.
+    # Discovery methods are different: their API uses input + limit_per_input.
+    body={'input':inputs,'limit_per_input':limit} if discovery else inputs
     result=bd_call(endpoint,body)
     sid=result.get('snapshot_id') if isinstance(result,dict) else None
     if not isinstance(sid,str) or not re.fullmatch(r'sd?_[a-zA-Z0-9_\-]{5,120}', sid):
