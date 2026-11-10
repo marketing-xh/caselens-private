@@ -1,4 +1,4 @@
-"""CaseLens V7: public account readings + explicitly labeled training estimates."""
+"""CaseLens V10: validated public profiles + per-post Highlights + training estimates."""
 import json
 import base64
 import hmac
@@ -10,7 +10,7 @@ import sqlite3
 import sys
 import threading
 import webbrowser
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs, quote, urlencode
 from urllib.request import Request, urlopen
@@ -27,6 +27,7 @@ HOST = '0.0.0.0' if os.getenv('REPL_ID') or os.getenv('CASELENS_CLOUD') == '1' e
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 JOBS = {}
 # Bright Data dataset IDs from provider's public official docs; may evolve.
+BD_POST_DATASETS = {'instagram':'gd_lk5ns7kz21pck8jpis', 'facebook':'gd_lkaxegm826bjpoo9m5', 'tiktok':'gd_lu702nij2f790tmv9h', 'linkedin':'gd_lyy3tktm25m4avu764'}
 BD_DATASETS = {'youtube': 'gd_lk538t2k2p1k3oos71', 'tiktok': 'gd_l1villgoiiidt09ci', 'facebook': 'gd_mf124a0511bauquyow', 'instagram':'gd_l1vikfch901nx3by4', 'linkedin':'gd_l1vikfnt1wgvvqz95w'}
 
 
@@ -280,6 +281,24 @@ def sql(conn, stmt, args=()):
     return conn.execute(stmt, args)
 
 
+def retain_verified_public(a,result):
+    """Keep a user's source-checked public facts, without overwriting fresh API facts."""
+    try:
+        with db_conn() as c:
+            row=sql(c,'SELECT payload FROM cases WHERE platform=? AND account=? ORDER BY updated_at DESC LIMIT 1',(a['platform'],a['id'].lower())).fetchone()
+        if not row:return result
+        old=json.loads(row[0]); facts=old.get('manual_verified') or {}
+        if not facts:return result
+        current=result.setdefault('stats',{})
+        for k in ('followers','total_likes','video_count'):
+            if current.get(k) is None and facts.get(k) is not None:current[k]=facts[k]
+        if not result.get('account_country') and facts.get('account_country'):
+            result['account_country']=facts['account_country']
+        result['manual_verified']=facts
+        result['manual_verified_at']=old.get('manual_verified_at')
+    except (OSError,ValueError,TypeError):pass
+    return result
+
 def retain_imported_report(a, result):
     # Preserve manually imported time-bound analytics when refreshing public profiles.
     try:
@@ -384,23 +403,156 @@ def bd_call(url, data=None):
         raise ValueError('公开数据服务暂时无法连接：'+str(ex.reason)) from ex
 
 
-def bd_trigger(a):
-    ds=os.getenv('BRIGHTDATA_'+a['platform'].upper()+'_DATASET_ID', BD_DATASETS[a['platform']])
-    endpoint='https://api.brightdata.com/datasets/v3/trigger?'+urlencode({'dataset_id':ds,'format':'json'})
-    bd_url=(a['url'].rstrip('/')+'/about') if a['platform']=='youtube' else a['url']
-    payload=[{'url':bd_url,'country':''}] if a['platform']=='tiktok' else [{'url':bd_url}]
-    obj=bd_call(endpoint, payload)
-    sid=obj.get('snapshot_id') if isinstance(obj,dict) else None
-    if not sid or not re.fullmatch(r's_[a-zA-Z0-9_\-]{5,120}', sid):
-        raise ValueError('公开数据服务未返回采集任务编号，请检查账号权限和余额。')
-    jid=secrets.token_urlsafe(18)
-    JOBS[jid]={'snapshot_id':sid, 'a':a, 'at':time.time()}
-    # Avoid keeping old jobs indefinitely
-    for k, v in list(JOBS.items()):
-        if time.time()-v['at'] > 3600:
-            del JOBS[k]
-    return {'pending':True,'job_id':jid,'message':'正在采集当前公开资料，结果取决于平台页面可访问性。'}
+def _bd_start(ds, inputs, discovery=None, limit=18):
+    """One bounded Bright Data job. Discover doors require input+limit_per_input body."""
+    query={'dataset_id':ds,'format':'json'}
+    if discovery:
+        query.update({'type':'discover_new','discover_by':discovery})
+    endpoint='https://api.brightdata.com/datasets/v3/trigger?'+urlencode(query)
+    body={'input':inputs,'limit_per_input':limit} if discovery else {'input':inputs}
+    result=bd_call(endpoint,body)
+    sid=result.get('snapshot_id') if isinstance(result,dict) else None
+    if not isinstance(sid,str) or not re.fullmatch(r'sd?_[a-zA-Z0-9_\-]{5,120}', sid):
+        raise ValueError('采集服务未返回有效任务编号；核对数据集、调用额度与输入字段。')
+    return sid
 
+
+def bd_trigger(a, base_result=None):
+    jobs={}
+    if base_result is None:
+        ds=os.getenv('BRIGHTDATA_'+a['platform'].upper()+'_DATASET_ID', BD_DATASETS[a['platform']])
+        url=(a['url'].rstrip('/')+'/about') if a['platform']=='youtube' else a['url']
+        inp={'url':url}
+        if a['platform']=='tiktok':inp['country']=''
+        profile_sid=_bd_start(ds,[inp])
+        jobs['profile']=profile_sid
+    warning=None
+    if a['platform'] in BD_POST_DATASETS and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+        try:
+            ds_posts=os.getenv('BRIGHTDATA_'+a['platform'].upper()+'_POSTS_DATASET_ID',BD_POST_DATASETS[a['platform']])
+            posts_input={'url':a['url']}
+            if a['platform']=='facebook':
+                posts_input.update({'num_of_posts':18, 'include_profile_data':True})
+                posts_sid=_bd_start(ds_posts,[posts_input])
+            elif a['platform']=='tiktok':
+                posts_input.update({'country':''})
+                posts_sid=_bd_start(ds_posts,[posts_input],discovery='profile_url',limit=18)
+            elif a['platform']=='linkedin':
+                posts_sid=_bd_start(ds_posts,[posts_input],discovery='company_url',limit=18)
+            else:  # Instagram: discover recent posts by public profile URL
+                posts_sid=_bd_start(ds_posts,[posts_input],discovery='url',limit=18)
+            jobs['posts']=posts_sid
+        except ValueError as ex:
+            warning='作品采集未启动：'+str(ex)[:120]
+    if not jobs and base_result is not None:
+        return finish_direct(a,base_result)
+    jid=secrets.token_urlsafe(18)
+    JOBS[jid]={'snapshots':jobs,'a':a,'at':time.time(),'warning':warning,'base_result':base_result}
+    for k,v in list(JOBS.items()):
+        if time.time()-v['at']>3600:JOBS.pop(k,None)
+    return {'pending':True,'job_id':jid,'message':'正在分别采集账号资料及公开内容；作品数据仅使用真实返回值。'}
+
+
+def account_token(a):
+    return str(a.get('id','')).lower().lstrip('@')
+
+
+def same_account(a,d):
+    """Block cross-account contamination even if provider returns a stale/wrong record."""
+    expected=account_token(a)
+    fields={
+        'instagram':('account','username','user_name','profile_url'),
+        'tiktok':('account_id','username','user_name','unique_id','url'),
+        'facebook':('username','profile_handle','page_username','page_url','url'),
+        'linkedin':('company_url','url','company_slug'),
+        'youtube':('url','handle','channel_url'),
+    }.get(a['platform'],('url',))
+    values=[]
+    for k in fields:
+        v=d.get(k)
+        if isinstance(v,dict):continue
+        if isinstance(v,str) and v.strip():values.append(v.strip())
+    if not values:return False
+    for val in values:
+        vv=val.lower().strip().lstrip('@')
+        if vv==expected:return True
+        if vv.startswith('http'):
+            try:
+                u=parse_account(vv)
+                if u['platform']==a['platform'] and u['id'].lower()==expected:return True
+            except ValueError:pass
+        if a['platform']=='facebook' and vv.endswith('/'+expected):return True
+    return False
+
+
+def post_matches_account(a,d):
+    candidates=[]
+    keys={
+        'instagram':('user_posted','username','profile_url','author_username'),
+        'tiktok':('account_id','author_username','author','username','unique_id','author_url'),
+        'facebook':('profile_handle','user_username_raw','user_url','page_url'),
+        'linkedin':('company_url','company_slug','profile_url'),
+        'youtube':('channel_url','channel_id'),
+        'xiaohongshu':('author_id','user_id'),
+    }[a['platform']]
+    for k in keys:
+        v=d.get(k)
+        if isinstance(v,dict):v=v.get('unique_id') or v.get('username') or v.get('url')
+        if isinstance(v,str) and v.strip():candidates.append(v)
+    if not candidates:
+        inp=d.get('discovery_input')
+        if isinstance(inp,dict):inp=inp.get('url')
+        if isinstance(inp,str) and inp:
+            candidates.append(inp)
+    return bool(candidates) and any(same_account(a,{k:v}) for v in candidates for k in ('account_id','account','username','profile_url','url','company_url','profile_handle'))
+
+
+def normalize_date(v):
+    if isinstance(v,(int,float)):
+        try:return datetime.fromtimestamp(v/(1000 if v>1e11 else 1),timezone.utc).date().isoformat()
+        except (OverflowError,OSError,ValueError):return None
+    if isinstance(v,str) and v:
+        t=v.strip()
+        if re.match(r'^\d{4}-\d\d-\d\d',t):return t[:10]
+        if re.match(r'^\d{10,13}$',t):return normalize_date(int(t))
+    return None
+
+
+def extract_post_records(records,a):
+    """Normalize genuine individual posts. Missing fields stay None, never invented."""
+    if not isinstance(records,list):return []
+    out=[];used=set()
+    for d in records:
+        if not isinstance(d,dict) or d.get('error') or not post_matches_account(a,d):continue
+        link=get_first(d,'post_url','url','permalink','video_url','link','post_link')
+        if not isinstance(link,str) or not link.startswith('https://'):continue
+        host=urlparse(link).hostname or ''
+        domain={'instagram':'instagram.com','tiktok':'tiktok.com','facebook':'facebook.com','linkedin':'linkedin.com'}[a['platform']]
+        if not (host==domain or host.endswith('.'+domain)):continue
+        if link in used:continue
+        used.add(link)
+        label=get_first(d,'title','description','caption','content','text','message','post_text')
+        when=normalize_date(get_first(d,'date_posted','created_at','date','timestamp','create_time','published_at'))
+        out.append({'title':str(label or '公开作品（无文字描述）')[:145],
+                    'date':when,'url':link,
+                    'views':numeric_field(d,'views','view_count','view_count_video','video_play_count','video_view_count','play_count','views_count','impressions'),
+                    'likes':numeric_field(d,'likes','like_count','digg_count','reactions','num_likes'),
+                    'comments':numeric_field(d,'comments','num_comments','comments_count','comment_count'),
+                    'shares':numeric_field(d,'shares','share_count','share_count_video','reposts','num_shares'),
+                    'saves':numeric_field(d,'collect_count','collects','save_count','saves','favorites'),
+                    'type':get_first(d,'content_type','post_type','type','media_type'),
+                    'source':'公开作品采集'})
+        if len(out)>=50:break
+    return out
+
+
+def merge_post_records(a,payload,raw):
+    if isinstance(raw,dict):raw=raw.get('data',raw.get('records',[raw]))
+    posts=extract_post_records(raw,a)
+    payload['posts']=posts
+    payload['posts_data_basis']='公开作品采集' if posts else '未取得账号的可核实作品'
+    payload['posts_sample_size']=len(posts)
+    return payload
 
 def extract_public_posts(record, platform):
     """Keep only provider-returned post details; never fabricate URLs or metrics."""
@@ -438,9 +590,9 @@ def bd_process(a, raw):
             raw=[raw]
     if not isinstance(raw,list) or not raw:
         raise ValueError('该账号没有返回可验证的公开数据；没有生成假指标。')
-    d=next((x for x in raw if isinstance(x,dict) and not x.get('error')),None)
+    d=next((x for x in raw if isinstance(x,dict) and not x.get('error') and same_account(a,x)),None)
     if not d:
-        raise ValueError('第三方采集没有返回账号记录，可能是区域限制、页面保护或不支持该账号。')
+        raise ValueError('公开采集没有返回与输入链接一致的账号记录；为防止串号，不采用无法确认身份的数据。')
     if a['platform']=='youtube':
         subscribers=numeric_field(d,'subscribers','subscriber_count','subscribers_count','number_of_subscribers','subscribers_number')
         total_views=numeric_field(d,'total_views','views','views_count','total_view_count')
@@ -449,7 +601,7 @@ def bd_process(a, raw):
         stats={'followers':subscribers,'total_views':total_views,'video_count':count}
     elif a['platform']=='instagram':
         followers=numeric_field(d,'followers','follower_count','followers_count','num_followers')
-        count=numeric_field(d,'posts_count','post_count','posts','media_count')
+        count=numeric_field(d,'posts_count','post_count','posts','media_count','posts_count_total')
         name=get_first(d,'full_name','name','account','username') or '@'+a['id']
         stats={'followers':followers,'video_count':count,'following':numeric_field(d,'following','following_count')}
     elif a['platform']=='linkedin':
@@ -459,19 +611,19 @@ def bd_process(a, raw):
     elif a['platform']=='tiktok':
         # TikTok profile dataset fields vary between versions. Only use fields actually present.
         followers=numeric_field(d,'followers','follower_count','followers_count','num_followers','fans','fans_count')
-        total_likes=numeric_field(d,'likes','total_likes','hearts','likes_count','total_hearts')
-        count=numeric_field(d,'video_count','videos','posts_count','number_of_posts','post_count')
+        total_likes=numeric_field(d,'likes','total_likes','hearts','likes_count','total_hearts','heart_count','heartCount')
+        count=numeric_field(d,'video_count','videos_count','videos','posts_count','number_of_posts','post_count')
         name=get_first(d,'nickname','account_name','username','user_name') or '@'+a['id']
         stats={'followers':followers,'total_likes':total_likes,'video_count':count}
     else:
         followers=numeric_field(d,'followers','follower_count','followers_count','page_followers')
-        fans=numeric_field(d,'likes','page_likes','fan_count','fans')
+        fans=numeric_field(d,'page_likes','fan_count','fans')
         name=get_first(d,'page_name','name','title','username') or a['id']
         stats={'followers':followers,'fans':fans}
     if not any(v is not None for v in stats.values()):
         raise ValueError('公开记录已返回，但未获得可核验的数值指标；请检查 Bright Data 的字段和采集结果。')
     # Location metadata only reflects account origin; it does not expose audience insights.
-    origin=get_first(d,'country','country_name','location_country')
+    origin=get_first(d,'account_based_in','account_country','country','country_name','location_country')
     if not isinstance(origin,str):origin=None
     # Avoid implying official verification or exactly live telemetry
     return {'account_country':origin,'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image','profile_image_url','profile_pic_url'),
@@ -486,31 +638,36 @@ def bd_process(a, raw):
 
 def bd_check_job(jid):
     item=JOBS.get(jid)
-    if not item:
-        raise ValueError('任务已过期，请重新输入链接并同步。')
-    if 'done' in item:
-        return item['done']
-    sid=item['snapshot_id']
-    result=bd_call('https://api.brightdata.com/datasets/v3/progress/'+sid)
-    status=result.get('status') if isinstance(result,dict) else None
-    if status in ('starting','running'):
-        return {'pending':True,'message':'正在获取公开资料…'}
-    if status!='ready':
-        raise ValueError('公开数据采集失败；页面可能受限制或不支持此账号。')
-    raw=bd_call('https://api.brightdata.com/datasets/v3/snapshot/'+sid+'?format=json')
-    a=item['a']; payload=bd_process(a,raw)
-    payload=retain_imported_report(a,payload)
-    if not payload.get('report_source') and not payload.get('series'):
-        payload.update(estimate(payload,a))
-    payload['account']=a
-    payload['fetched_at']=now()
-    payload['history']=store_and_history(a,payload['stats'])
-    save_case(a,payload)
+    if not item:raise ValueError('任务已过期，请重新同步。')
+    if 'done' in item:return item['done']
+    snapshots=item.get('snapshots') or {'profile':item['snapshot_id']}
+    statuses={}
+    for kind,sid in snapshots.items():
+        response=bd_call('https://api.brightdata.com/datasets/v3/progress/'+sid)
+        statuses[kind]=response.get('status') if isinstance(response,dict) else 'failed'
+    if any(v in ('starting','running') for v in statuses.values()):
+        return {'pending':True,'message':'正在读取账号资料与作品内容…'}
+    a=item['a']
+    if item.get('base_result') is not None:
+        payload=item['base_result']
+    else:
+        if statuses.get('profile')!='ready':
+            raise ValueError('账号资料采集失败，请检查公开采集服务权限及账号可访问性。')
+        raw=bd_call('https://api.brightdata.com/datasets/v3/snapshot/'+snapshots['profile']+'?format=json')
+        payload=bd_process(a,raw)
+    if snapshots.get('posts'):
+        if statuses.get('posts')=='ready':
+            posts_raw=bd_call('https://api.brightdata.com/datasets/v3/snapshot/'+snapshots['posts']+'?format=json')
+            payload=merge_post_records(a,payload,posts_raw)
+        else:
+            payload['posts_warning']='作品采集未成功，本次只更新账号资料'
+    if item.get('warning'):payload['posts_warning']=item['warning']
+    payload=finish_direct(a,payload)
     item['done']=payload
     return payload
 
-
 def finish_direct(a, result):
+    result=retain_verified_public(a,result)
     result=retain_imported_report(a,result)
     original_audience=normalized_audience(result.get('audience')) if result.get('audience') else None
     audience_source=(result.get('audience') or {}).get('source','authorized') if isinstance(result.get('audience'),dict) else 'authorized'
@@ -567,6 +724,18 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def do_HEAD(self):
+        """Render uptime probes should not receive 501 unsupported method."""
+        path=urlparse(self.path).path
+        if path=='/healthz':
+            self.send_response(200)
+            self.send_header('Content-Length','0');self.end_headers();return
+        if path=='/':
+            if not self.authenticated():return
+            self.send_response(200)
+            self.send_header('Content-Length','0');self.end_headers();return
+        self.send_response(404);self.end_headers()
+
     def do_GET(self):
         u=urlparse(self.path)
         if u.path=='/healthz':
@@ -585,7 +754,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path=='/api/integrations':
             return self.send_json(200,{'items':integration_status(config())})
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V8','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V10','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -607,7 +776,11 @@ class Handler(BaseHTTPRequestHandler):
                 if a['platform']=='instagram':
                     if os.getenv('INSTAGRAM_ACCESS_TOKEN') and os.getenv('INSTAGRAM_IG_USER_ID'):
                         try:
-                            return self.send_json(200,finish_direct(a,ig_fetch(a,cfg)))
+                            own=ig_fetch(a,cfg)
+                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+                                response=bd_trigger(a,base_result=own)
+                                return self.send_json(202 if response.get('pending') else 200,response)
+                            return self.send_json(200,finish_direct(a,own))
                         except ValueError as ex:
                             if not os.getenv('BRIGHTDATA_API_TOKEN'):
                                 return self.send_json(200,finish_direct(a,scenario_profile(a,ex)))
@@ -624,14 +797,30 @@ class Handler(BaseHTTPRequestHandler):
                 if a['platform']=='tiktok':
                     tok=os.getenv('TIKTOK_ACCESS_TOKEN') or cfg.get('tiktok',{}).get('access_token')
                     if tok:
-                        return self.send_json(200,finish_direct(a,tk_fetch(a,cfg)))
+                        try:
+                            own=tk_fetch(a,cfg)
+                        except ValueError:
+                            if not os.getenv('BRIGHTDATA_API_TOKEN'):raise
+                        else:
+                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+                                response=bd_trigger(a,base_result=own)
+                                return self.send_json(202 if response.get('pending') else 200,response)
+                            return self.send_json(200,finish_direct(a,own))
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
                         return self.send_json(202,bd_trigger(a))
                     return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置TikTok公开采集服务')))
                 if a['platform']=='facebook':
                     entry=cfg.get('facebook_pages',{}).get(a['id']) or cfg.get('facebook_pages',{}).get(a['url']) or (os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'))
                     if entry:
-                        return self.send_json(200,finish_direct(a,fb_fetch(a,cfg)))
+                        try:
+                            own=fb_fetch(a,cfg)
+                        except ValueError:
+                            if not os.getenv('BRIGHTDATA_API_TOKEN'):raise
+                        else:
+                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+                                response=bd_trigger(a,base_result=own)
+                                return self.send_json(202 if response.get('pending') else 200,response)
+                            return self.send_json(200,finish_direct(a,own))
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
                         return self.send_json(202,bd_trigger(a))
                     return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置Facebook公开采集服务')))
@@ -646,7 +835,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authenticated():
             return
         u=urlparse(self.path)
-        if u.path not in ('/api/cases','/api/estimate'):
+        if u.path not in ('/api/cases','/api/estimate','/api/verify-public'):
             return self.send_json(404, {'error':'Not found'})
         try:
             n=int(self.headers.get('Content-Length','0'))
@@ -654,6 +843,37 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('导入文件内容不合法或超过大小限制')
             obj=json.loads(self.rfile.read(n))
             a=parse_account(obj['url'])
+            if u.path=='/api/verify-public':
+                fields=obj.get('fields')
+                if not isinstance(fields,dict):raise ValueError('核实资料格式错误')
+                if not any(str(v).strip() for v in fields.values() if v is not None):raise ValueError('至少填写一项已核实的数据')
+                with db_conn() as c:
+                    row=sql(c,'SELECT payload FROM cases WHERE platform=? AND account=? ORDER BY updated_at DESC LIMIT 1',(a['platform'],a['id'].lower())).fetchone()
+                d=json.loads(row[0]) if row else scenario_profile(a)
+                facts=dict(d.get('manual_verified') or {})
+                for k in ('followers','total_likes','video_count'):
+                    v=fields.get(k)
+                    if v in ('',None):continue
+                    parsed=safe_number(v)
+                    if parsed is None or parsed>10_000_000_000:raise ValueError(k+' 必须是非负数字')
+                    if k=='total_likes' and a['platform']!='tiktok':raise ValueError('累计获赞字段仅供TikTok账号使用')
+                    facts[k]=parsed
+                    d.setdefault('stats',{})[k]=parsed
+                country=str(fields.get('account_country') or '').strip()
+                if country:
+                    if len(country)>60 or any(x in country for x in '<>{}'):
+                        raise ValueError('账号所在地格式错误')
+                    facts['account_country']=country
+                    d['account_country']=country
+                d['manual_verified']=facts
+                d['manual_verified_at']=now()
+                # Recompute scenario with updated verified baseline. Do not touch imported true analytics.
+                if not d.get('report_source'):
+                    assumptions=(d.get('estimate_model') or {}).get('assumptions') or {}
+                    d.update(estimate(d,a,assumptions))
+                d['fetched_at']=now()
+                save_case(a,d)
+                return self.send_json(200,{'ok':True,'verified_fields':list(facts)})
             if u.path=='/api/estimate':
                 raw_assumptions=obj.get('assumptions',{})
                 if not isinstance(raw_assumptions,dict):
@@ -705,7 +925,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V8: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V10: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if not os.getenv('CASELENS_PASSWORD'):

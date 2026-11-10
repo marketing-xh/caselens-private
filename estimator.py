@@ -115,7 +115,8 @@ def estimate(profile, account, assumptions=None):
         stable=int(hashlib.sha256((account['url']+'|followers-v8').encode('utf-8')).hexdigest()[:8],16)
         followers=float(2000 + 100 * (stable % 650))
         follower_basis='该账号无可核实粉丝数，按账号链接生成稳定的培训假设（非真实粉丝）'
-    recents=[x for x in profile.get('posts', []) if isinstance(x,dict) and _num(x.get('views')) is not None]
+    observed_posts=[x for x in profile.get('posts', []) if isinstance(x,dict) and x.get('url')]
+    recents=[x for x in observed_posts if _num(x.get('views')) is not None]
     recent_views=[_num(x.get('views')) for x in recents]
     median_views=statistics.median(recent_views) if recent_views else None
     # When real per-video public likes/comments exist, let this account's
@@ -130,18 +131,30 @@ def estimate(profile, account, assumptions=None):
                 rates[field]=statistics.median(samples)
     # Video views are cumulative as of scrape, not views earned in a 28-day interval.
     today=datetime.now(timezone.utc).date()
-    active28=sum(1 for x in recents if str(x.get('date') or '') >= (today-timedelta(days=27)).isoformat())
-    active90=sum(1 for x in recents if str(x.get('date') or '') >= (today-timedelta(days=89)).isoformat())
+    active28=sum(1 for x in observed_posts if x.get('date') and (today-timedelta(days=27)).isoformat() <= x['date'] <= today.isoformat())
+    active90=sum(1 for x in observed_posts if x.get('date') and (today-timedelta(days=89)).isoformat() <= x['date'] <= today.isoformat())
     manually_posts=_num(assumptions.get('posts_per_month'))
     if manually_posts is not None:
         posts28=_bound(manually_posts,0,90)
         posts_basis='手动发布频率假设'
     elif active90:
-        posts28=_bound(active90*28/90,1,90)
-        posts_basis='近期公开视频发布频率推算'
+        # A subset of public posts is not guaranteed to be exhaustive.
+        # Use the observed cadence as a floor for a *training* estimate only.
+        if active28>=3:
+            posts28=float(active28)
+            posts_basis='采样中近28天已确认发布作品数；这是下限，未核实采样完整性'
+        else:
+            posts28=_bound(active90*28/90,1,90)
+            posts_basis='采样中近90天已确认作品的频率估算（样本不一定完整）'
     else:
-        posts28=8.0 if platform in ('youtube','tiktok','instagram') else 12.0 if platform=='xiaohongshu' else 10.0
-        posts_basis='平台通用发布频率假设'
+        # No arbitrary 8-post constant. Stable account-specific *scenario*,
+        # never displayed as observed 28-day posting activity.
+        stamp=int(hashlib.sha256((account['url']+'|training-cadence-v10').encode()).hexdigest()[:10],16)
+        options={'youtube':(2,10),'tiktok':(5,20),'instagram':(3,16),'facebook':(2,14),
+                 'linkedin':(2,12),'xiaohongshu':(4,20)}
+        mn,mx=options[platform]
+        posts28=float(mn+stamp%(mx-mn+1))
+        posts_basis='针对当前账号创建的培训发文频率假设，非历史发布数量'
     manual_avg=_num(assumptions.get('views_per_post'))
     if manual_avg is not None:
         average=max(1,manual_avg)
@@ -207,7 +220,8 @@ def estimate(profile, account, assumptions=None):
            'posts_per_28d':round(posts28,1),'views_per_post':_round(average),
            'views_28d_baseline':_round(month_views), 'estimate_28d_low':_round(month_views*.5),
            'estimate_28d_high':_round(month_views*1.8), 'method':month_basis,
-           'public_recent_posts':len(recents), 'public_recent_posts_90d':active90,
+           'public_recent_posts':len(observed_posts), 'public_recent_posts_28d':active28, 'public_recent_posts_90d':active90,
+           'historical_posts_completeness':'unknown', 'posts_frequency_basis':posts_basis,
            'generated_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
            'assumptions':{k:v for k,v in assumptions.items() if k in ('followers','posts_per_month','views_per_post','views_28d','market','female_pct')}}
     return {'series':series,'estimate_model':model, 'estimate_notes':note, 'audience':estimate_audience(account,assumptions,profile)}
