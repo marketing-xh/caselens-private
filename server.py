@@ -1,4 +1,4 @@
-"""CaseLens V6: public account readings + explicitly labeled training estimates."""
+"""CaseLens V7: public account readings + explicitly labeled training estimates."""
 import json
 import base64
 import hmac
@@ -17,6 +17,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from estimator import estimate, scenario_profile
+from audience import estimate_audience, normalized_audience, MARKETS
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv('CASELENS_DB_PATH', str(ROOT / 'history.sqlite3')))
@@ -26,7 +27,7 @@ HOST = '0.0.0.0' if os.getenv('REPL_ID') or os.getenv('CASELENS_CLOUD') == '1' e
 DATABASE_URL = os.getenv('DATABASE_URL', '')
 JOBS = {}
 # Bright Data dataset IDs from provider's public official docs; may evolve.
-BD_DATASETS = {'youtube': 'gd_lk538t2k2p1k3oos71', 'tiktok': 'gd_l1villgoiiidt09ci', 'facebook': 'gd_mf124a0511bauquyow'}
+BD_DATASETS = {'youtube': 'gd_lk538t2k2p1k3oos71', 'tiktok': 'gd_l1villgoiiidt09ci', 'facebook': 'gd_mf124a0511bauquyow', 'instagram':'gd_l1vikfch901nx3by4', 'linkedin':'gd_l1vikfnt1wgvvqz95w'}
 
 
 def now():
@@ -65,6 +66,13 @@ def parse_account(raw):
         if len(bits) >= 2 and bits[0] in ('company', 'showcase') and re.fullmatch(r'[\w.\-]{2,100}', bits[1]):
             return {'platform': 'linkedin', 'id': bits[1], 'kind': 'company', 'url': 'https://www.linkedin.com/company/' + bits[1] + '/'}
         raise ValueError('LinkedIn 请使用 /company/公司名称 的公司主页链接；个人账号的后台指标需单独授权。')
+    if host in ('instagram.com','instagr.am'):
+        if not bits or bits[0].lower() in ('p','reel','reels','stories','explore','accounts','direct'):
+            raise ValueError('Instagram 请使用 https://www.instagram.com/账号/ 的主页链接')
+        ident=bits[0].lstrip('@')
+        if not re.fullmatch(r'[A-Za-z0-9._]{2,30}', ident):
+            raise ValueError('Instagram 用户名格式不正确')
+        return {'platform':'instagram','id':ident,'kind':'handle','url':'https://www.instagram.com/'+ident.lower()+'/'}
     if host == 'tiktok.com':
         if not bits or not bits[0].startswith('@'):
             raise ValueError('TikTok 请使用 /@账号 的主页链接')
@@ -77,7 +85,7 @@ def parse_account(raw):
         if not re.fullmatch(r'[\w.\-]{2,140}', ident) or ident in ('watch', 'reel', 'share', 'groups'):
             raise ValueError('Facebook 请使用 Page 主页链接')
         return {'platform': 'facebook', 'id': ident, 'kind': 'page', 'url': ('https://www.facebook.com/profile.php?id='+ident if bits and bits[0]=='profile.php' else f'https://www.facebook.com/{ident}')}
-    raise ValueError('当前仅支持 YouTube / TikTok / Facebook 账号主页链接')
+    raise ValueError('请使用 YouTube / TikTok / Instagram / Facebook / LinkedIn 账号主页链接')
 
 
 def get_json(url, token=None):
@@ -153,6 +161,8 @@ def tk_fetch(a, cfg):
 def fb_fetch(a, cfg):
     pages = cfg.get('facebook_pages', {})
     entry = pages.get(a['id']) or pages.get(a['url'])
+    if not entry and os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'):
+        entry={'page_id':os.getenv('FACEBOOK_PAGE_ID'), 'access_token':os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN')}
     if not entry:
         raise ValueError('Facebook 只能读取配置过授权的 Page。请在 settings.json 的 facebook_pages 中添加该账号映射及 Page Access Token。')
     pid = str(entry.get('page_id') or '')
@@ -160,16 +170,84 @@ def fb_fetch(a, cfg):
     if not re.fullmatch(r'[0-9]{5,40}', pid) or not token:
         raise ValueError('Facebook 配置缺少合法的 Page ID 或 Access Token')
     ver = 'v23.0'  # Endpoint version may need updating as Meta deprecates old versions.
-    fields = 'id,name,fan_count,followers_count,link,picture'
+    fields = 'id,name,username,fan_count,followers_count,link,picture'
     url = f'https://graph.facebook.com/{ver}/{pid}?' + urlencode({'fields': fields})
     data = get_json(url, token)
     if str(data.get('id')) != pid:
         raise ValueError('Facebook 返回了不匹配的 Page ID')
+    ident=a['id'].lower()
+    allowed={pid.lower(),str(data.get('username') or '').lower()}
+    link=str(data.get('link') or '')
+    if link:
+        try:allowed.add(urlparse(link).path.strip('/').split('/')[0].lower())
+        except Exception:pass
+    if ident not in allowed:
+        raise ValueError('Facebook Page Token 对应的主页与输入链接不一致。')
     return {'platform': 'facebook', 'name': data.get('name', a['id']), 'url': data.get('link', a['url']),
             'avatar': (data.get('picture') or {}).get('data', {}).get('url'),
             'stats': {'followers': data.get('followers_count'), 'fans': data.get('fan_count')}, 'posts': [],
             'source': 'Meta Graph API（Page 授权数据）', 'quality': 'authorized', 'notes': ['Page Insights / 受众与广告指标需要额外页面权限。']}
 
+
+def _ig_audience_from_insights(ig_user_id, token, api_base):
+    """Read optional aggregate demographics on the authorized account only."""
+    groups={}
+    for breakdown, dest in [('country','countries'),('gender','genders'),('age','ages')]:
+        url=api_base+f'/{ig_user_id}/insights?'+urlencode({
+            'metric':'follower_demographics','period':'lifetime','metric_type':'total_value',
+            'breakdown':breakdown,'timeframe':'last_30_days'})
+        try:
+            obj=get_json(url, token)
+            arr=obj.get('data',[])
+            if not arr:continue
+            breakdowns=arr[0].get('total_value',{}).get('breakdowns',[])
+            if not breakdowns:continue
+            rows=breakdowns[0].get('results',[])
+            converted=[]
+            for row in rows:
+                label=(row.get('dimension_values') or [''])[0]
+                value=row.get('value')
+                try:value=int(value)
+                except (TypeError,ValueError):continue
+                if label and value>=0:
+                    if dest=='genders':label={'F':'女性','M':'男性','U':'其他'}.get(str(label).upper(),str(label))
+                    converted.append({'name':str(label),'value':value})
+            if converted:groups[dest]=converted
+        except (ValueError,KeyError,IndexError):
+            pass
+    return normalized_audience(groups)
+
+
+def ig_fetch(a,cfg):
+    token=os.getenv('INSTAGRAM_ACCESS_TOKEN','').strip()
+    uid=os.getenv('INSTAGRAM_IG_USER_ID','').strip()
+    if not token or not uid:
+        raise ValueError('Instagram 官方读取需要专业账号授权、INSTAGRAM_ACCESS_TOKEN 和 INSTAGRAM_IG_USER_ID。')
+    if not re.fullmatch(r'[0-9]{5,30}',uid):
+        raise ValueError('INSTAGRAM_IG_USER_ID 必须为数字用户 ID')
+    # Instagram Login access token: do not confuse with a Facebook Page token.
+    base='https://graph.instagram.com/v26.0'
+    url=base+'/'+uid+'?'+urlencode({'fields':'id,username,name,followers_count,media_count,profile_picture_url'})
+    d=get_json(url, token)
+    username=str(d.get('username') or '').lstrip('@')
+    if username.lower()!=a['id'].lower():
+        raise ValueError('已授权的 Instagram 账号与输入链接不匹配，不能用其他账号的数据替代。')
+    audience=_ig_audience_from_insights(uid,token,base)
+    return {'platform':'instagram','name':d.get('name') or username, 'url':a['url'],
+            'avatar':d.get('profile_picture_url'),
+            'stats':{'followers':d.get('followers_count'),'video_count':d.get('media_count')},
+            'posts':[],'quality':'authorized','source':'Instagram API（授权专业账号）',
+            'audience':dict(audience,source='authorized') if audience else None,
+            'notes':['粉丝画像若由 Meta 返回，则为授权账号的聚合 Insights；无法返回的维度会使用培训情景补齐。']}
+
+
+def integration_status(cfg):
+    bd=bool(os.getenv('BRIGHTDATA_API_TOKEN'))
+    return {'youtube':{'official':bool(os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key')),'public':False},
+            'instagram':{'official':bool(os.getenv('INSTAGRAM_ACCESS_TOKEN') and os.getenv('INSTAGRAM_IG_USER_ID')),'public':bd},
+            'facebook':{'official':bool(cfg.get('facebook_pages') or (os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'))),'public':bd},
+            'tiktok':{'official':bool(os.getenv('TIKTOK_ACCESS_TOKEN') or cfg.get('tiktok',{}).get('access_token')),'public':bd},
+            'linkedin':{'official':False,'public':bd}}
 
 def db_conn():
     if DATABASE_URL:
@@ -226,6 +304,9 @@ def list_cases():
     res=[]
     for url, plat, acct, name, payload, updated_at in rows:
         obj=json.loads(payload)
+        if not obj.get('audience'):
+            try:obj['audience']=estimate_audience(parse_account(url),(obj.get('estimate_model') or {}).get('assumptions'))
+            except ValueError:pass
         obj['history']=read_history(plat, acct) or obj.get('history', [])
         res.append({'url':url, 'platform':plat, 'name':name, 'data':obj})
     return res
@@ -331,6 +412,15 @@ def bd_process(a, raw):
         count=numeric_field(d,'video_count','videos_count','videos','number_of_videos')
         name=get_first(d,'name','channel_name','title','handle') or a['id']
         stats={'followers':subscribers,'total_views':total_views,'video_count':count}
+    elif a['platform']=='instagram':
+        followers=numeric_field(d,'followers','follower_count','followers_count','num_followers')
+        count=numeric_field(d,'posts_count','post_count','posts','media_count')
+        name=get_first(d,'full_name','name','account','username') or '@'+a['id']
+        stats={'followers':followers,'video_count':count,'following':numeric_field(d,'following','following_count')}
+    elif a['platform']=='linkedin':
+        followers=numeric_field(d,'followers','follower_count','followers_count','num_followers')
+        name=get_first(d,'name','company_name','title') or a['id']
+        stats={'followers':followers}
     elif a['platform']=='tiktok':
         # TikTok profile dataset fields vary between versions. Only use fields actually present.
         followers=numeric_field(d,'followers','follower_count','followers_count','num_followers','fans','fans_count')
@@ -346,7 +436,7 @@ def bd_process(a, raw):
     if not any(v is not None for v in stats.values()):
         raise ValueError('公开记录已返回，但未获得可核验的数值指标；请检查 Bright Data 的字段和采集结果。')
     # Avoid implying official verification or exactly live telemetry
-    return {'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image'),
+    return {'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image','profile_image_url','profile_pic_url'),
         'stats':stats,'posts':[], 'quality':'public-third-party',
         'source':'Bright Data · 公开页面采集（非平台官方后台）',
         'references':[a['url']], 'provider_data_date':get_first(d,'timestamp','updated_at','scraped_at'),
@@ -384,8 +474,26 @@ def bd_check_job(jid):
 
 def finish_direct(a, result):
     result=retain_imported_report(a,result)
+    original_audience=normalized_audience(result.get('audience')) if result.get('audience') else None
+    audience_source=(result.get('audience') or {}).get('source','authorized') if isinstance(result.get('audience'),dict) else 'authorized'
     if not result.get('report_source') and not result.get('series'):
-        result.update(estimate(result,a))
+        # Respect scenario tuning when an existing case is refreshed.
+        assumptions={}
+        try:
+            with db_conn() as c:
+                row=sql(c,'SELECT payload FROM cases WHERE platform=? AND account=? ORDER BY updated_at DESC LIMIT 1',(a['platform'],a['id'].lower())).fetchone()
+            if row:assumptions=(json.loads(row[0]).get('estimate_model') or {}).get('assumptions') or {}
+        except (ValueError,TypeError,sqlite3.Error):pass
+        result.update(estimate(result,a,assumptions))
+    if original_audience:
+        # Some authorized Insights breakdowns may be unavailable (e.g. <100 followers).
+        # Fill missing charts with transparent training assumptions, never fake their source.
+        scenario=result.get('audience') or estimate_audience(a)
+        mixed={k:original_audience.get(k) or scenario.get(k,[]) for k in ('countries','genders','ages')}
+        mixed['source']='authorized' if all(original_audience.get(k) for k in ('countries','genders','ages')) else 'mixed-authorized-and-training'
+        result['audience']=mixed
+    elif not result.get('audience'):
+        result['audience']=estimate_audience(a,(result.get('estimate_model') or {}).get('assumptions'))
     result['account']=a
     result['fetched_at']=now()
     result['history']=store_and_history(a,result['stats'])
@@ -436,8 +544,10 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header('Content-Length',str(len(b)))
             self.end_headers()
             return self.wfile.write(b)
+        if u.path=='/api/integrations':
+            return self.send_json(200,{'items':integration_status(config())})
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V6','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V7','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -449,7 +559,19 @@ class Handler(BaseHTTPRequestHandler):
             if u.path=='/api/profile':
                 a=parse_account(parse_qs(u.query).get('url',[''])[0]); cfg=config()
                 if a['platform']=='linkedin':
-                    return self.send_json(200,finish_direct(a,scenario_profile(a,'LinkedIn组织分析接口尚未授权')))
+                    if os.getenv('BRIGHTDATA_API_TOKEN'):
+                        return self.send_json(202,bd_trigger(a))
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'LinkedIn 公开采集未配置')))
+                if a['platform']=='instagram':
+                    if os.getenv('INSTAGRAM_ACCESS_TOKEN') and os.getenv('INSTAGRAM_IG_USER_ID'):
+                        try:
+                            return self.send_json(200,finish_direct(a,ig_fetch(a,cfg)))
+                        except ValueError as ex:
+                            if not os.getenv('BRIGHTDATA_API_TOKEN'):
+                                return self.send_json(200,finish_direct(a,scenario_profile(a,ex)))
+                    if os.getenv('BRIGHTDATA_API_TOKEN'):
+                        return self.send_json(202,bd_trigger(a))
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'Instagram 公开采集及授权接口未配置')))
                 if a['platform']=='youtube':
                     if os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key'):
                         try:
@@ -465,7 +587,7 @@ class Handler(BaseHTTPRequestHandler):
                         return self.send_json(202,bd_trigger(a))
                     return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置TikTok公开采集服务')))
                 if a['platform']=='facebook':
-                    entry=cfg.get('facebook_pages',{}).get(a['id']) or cfg.get('facebook_pages',{}).get(a['url'])
+                    entry=cfg.get('facebook_pages',{}).get(a['id']) or cfg.get('facebook_pages',{}).get(a['url']) or (os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'))
                     if entry:
                         return self.send_json(200,finish_direct(a,fb_fetch(a,cfg)))
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
@@ -494,7 +616,7 @@ class Handler(BaseHTTPRequestHandler):
                 raw_assumptions=obj.get('assumptions',{})
                 if not isinstance(raw_assumptions,dict):
                     raise ValueError('假设参数格式不合法')
-                allowed=('followers','posts_per_month','views_per_post','views_28d')
+                allowed=('followers','posts_per_month','views_per_post','views_28d','female_pct')
                 asum={}
                 for k in allowed:
                     val=raw_assumptions.get(k)
@@ -508,6 +630,11 @@ class Handler(BaseHTTPRequestHandler):
                 d=json.loads(row[0]) if row else scenario_profile(a)
                 if d.get('report_source') and (d.get('analytics') or d.get('series')):
                     raise ValueError('当前账号已有导入的真实分析报表，不能用预估覆盖。')
+                market=raw_assumptions.get('market')
+                if market is not None:
+                    if not isinstance(market,str) or market not in MARKETS:raise ValueError('目标市场选择无效')
+                    asum['market']=market
+                if 'female_pct' in asum and asum['female_pct']>100:raise ValueError('女性比例不能超过100%')
                 d.update(estimate(d,a,asum))
                 d['fetched_at']=now()
                 save_case(a,d)
@@ -517,6 +644,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('数据内容或平台与链接不一致')
             d['quality']='imported'
             d['source']='内部导入（非平台 API 自动验证）'
+            if d.get('audience') is not None:
+                cleaned=normalized_audience(d['audience'])
+                if cleaned:d['audience']=dict(cleaned,source='imported')
+                else:d.pop('audience',None)
             d['fetched_at']=d.get('fetched_at') or now()
             d['url']=a['url']
             d['account']=a
@@ -532,7 +663,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V6: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V7: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if not os.getenv('CASELENS_PASSWORD'):

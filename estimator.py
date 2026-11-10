@@ -1,10 +1,11 @@
-"""CaseLens V6 - internal training forecasts, separate from verified Insights.
+"""CaseLens V7 - internal training forecasts, separate from verified Insights.
 
 This module needs no API credentials. A profile with public metrics gets an
 account-informed estimate; one without public data gets a *generic training
 scenario* with explicitly disclosed, adjustable assumptions.
 """
 from datetime import datetime, timedelta, timezone
+from audience import estimate_audience
 import hashlib
 import math
 import random
@@ -29,7 +30,7 @@ def _round(v):
 
 def _mix_values(platform, views, followers, p, observed=None):
     r = {'youtube': (0.028, 0.005, 0.0008), 'tiktok': (0.065, 0.008, 0.0013),
-         'facebook': (0.028, 0.006, 0.0008), 'linkedin': (0.035, 0.012, 0.0006)}
+         'facebook': (0.028, 0.006, 0.0008), 'instagram': (0.057, 0.006, 0.0010), 'linkedin': (0.035, 0.012, 0.0006)}
     l, c, f = r[platform]
     if observed:
         # Public video engagement is cumulative, so these ratios are only
@@ -52,6 +53,13 @@ def _mix_values(platform, views, followers, p, observed=None):
                 'new_followers':gained,'unfollows':_round(gained*.20),
                 'reach':_round(views*.75),'average_watch_time':13.4,
                 'completion_rate':32.0}
+    if platform == 'instagram':
+        return {'views':_round(views), 'reach':_round(views*.73),
+                'impressions':_round(views*1.35),'profile_visits':_round(views*.042),
+                'likes':likes,'comments':comments,'shares':_round(views*.008),
+                'saves':_round(views*.014),'accounts_engaged':_round(views*.072),
+                'new_followers':gained,'unfollows':_round(gained*.22),
+                'engagement_rate':7.2}
     if platform == 'facebook':
         interactions=_round(views*.065)
         return {'views':_round(views), 'reach':_round(views*.68),'interactions':interactions,
@@ -116,7 +124,7 @@ def estimate(profile, account, assumptions=None):
         posts28=_bound(active90*28/90,1,90)
         posts_basis='近期公开视频发布频率推算'
     else:
-        posts28=8.0 if platform in ('youtube','tiktok') else 10.0
+        posts28=8.0 if platform in ('youtube','tiktok','instagram') else 10.0
         posts_basis='平台通用发布频率假设'
     manual_avg=_num(assumptions.get('views_per_post'))
     if manual_avg is not None:
@@ -126,12 +134,12 @@ def estimate(profile, account, assumptions=None):
         average=max(1,median_views)
         video_basis='最近可读取内容的累计观看中位数（不是周期内观看）'
     else:
-        average=max(50,followers*({'youtube':.11,'tiktok':.44,'facebook':.16,'linkedin':.09}[platform]))
+        average=max(50,followers*({'youtube':.11,'tiktok':.44,'facebook':.16,'instagram':.30,'linkedin':.09}[platform]))
         video_basis='缺少公开内容，按粉丝规模使用通用经验假设'
     # Only a portion of each post's cumulative views plausibly arises in a given window.
     if platform=='linkedin':
         month_views=posts28*average*.75
-    elif platform=='facebook':
+    elif platform in ('facebook','instagram'):
         month_views=posts28*average*.85
     else:
         month_views=posts28*average*.63 + followers*({'youtube':.13,'tiktok':.22}[platform])
@@ -185,8 +193,8 @@ def estimate(profile, account, assumptions=None):
            'estimate_28d_high':_round(month_views*1.8), 'method':month_basis,
            'public_recent_posts':len(recents), 'public_recent_posts_90d':active90,
            'generated_at':datetime.now(timezone.utc).isoformat(timespec='seconds'),
-           'assumptions':{k:v for k,v in assumptions.items() if k in ('followers','posts_per_month','views_per_post','views_28d')}}
-    return {'series':series,'estimate_model':model, 'estimate_notes':note}
+           'assumptions':{k:v for k,v in assumptions.items() if k in ('followers','posts_per_month','views_per_post','views_28d','market','female_pct')}}
+    return {'series':series,'estimate_model':model, 'estimate_notes':note, 'audience':estimate_audience(account,assumptions)}
 
 
 def scenario_profile(account, reason=None):
