@@ -18,6 +18,7 @@ from urllib.error import HTTPError, URLError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from estimator import estimate, scenario_profile
 from audience import estimate_audience, normalized_audience, MARKETS, origin_context
+from access_control import AccessControl
 
 ROOT = Path(__file__).resolve().parent
 DB = Path(os.getenv('CASELENS_DB_PATH', str(ROOT / 'history.sqlite3')))
@@ -280,6 +281,8 @@ def sql(conn, stmt, args=()):
         stmt = stmt.replace('?', '%s')
     return conn.execute(stmt, args)
 
+
+ACCESS = AccessControl(db_conn, sql)
 
 def retain_verified_public(a,result):
     """Keep a user's source-checked public facts, without overwriting fresh API facts."""
@@ -770,30 +773,42 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(raw)
 
     def authenticated(self):
-        user=os.getenv('CASELENS_USER','team')
-        passwd=os.getenv('CASELENS_PASSWORD','')
-        if not passwd:
-            self.send_json(503, {'error':'管理员尚未设置 CASELENS_PASSWORD。为了防止案例数据泄露，网站暂不对外开放。'})
-            return False
-        auth=self.headers.get('Authorization','')
-        good='Basic '+base64.b64encode((user+':'+passwd).encode()).decode()
-        if not hmac.compare_digest(auth,good):
-            self.send_response(401)
-            self.send_header('WWW-Authenticate','Basic realm="CaseLens internal workspace", charset="UTF-8"')
-            self.send_header('Cache-Control','no-store')
-            self.send_header('Content-Length','0')
-            self.end_headers()
-            return False
-        return True
+        auth = self.headers.get('Authorization', '')
+        token = auth[7:] if auth.startswith('Bearer ') else ''
+        self.access_role = ACCESS.role(token)
+        if self.access_role:
+            return True
+        self.send_json(401, {'error': '访问许可不存在或已过期，请重新申请并等待管理员审批。'})
+        return False
+
+    def body_json(self, limit=12000):
+        size = int(self.headers.get('Content-Length', '0'))
+        if size <= 0 or size > limit:
+            raise ValueError('请求内容不能为空或超过上限')
+        obj = json.loads(self.rfile.read(size))
+        if not isinstance(obj, dict):
+            raise ValueError('请求必须是 JSON 对象')
+        return obj
+
+    def serve_html(self, name):
+        raw = (ROOT / name).read_bytes()
+        self.send_response(200)
+        self.send_header('Content-Type','text/html; charset=utf-8')
+        self.send_header('Cache-Control','no-store, max-age=0')
+        self.send_header('X-Content-Type-Options','nosniff')
+        self.send_header('Referrer-Policy','no-referrer')
+        self.send_header('X-Frame-Options','DENY')
+        self.send_header('Content-Security-Policy', "frame-ancestors 'none'")
+        self.send_header('Content-Length',str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
 
     def do_HEAD(self):
-        """Render uptime probes should not receive 501 unsupported method."""
         path=urlparse(self.path).path
-        if path=='/healthz':
+        if path in ('/healthz','/'):
             self.send_response(200)
             self.send_header('Content-Length','0');self.end_headers();return
-        if path=='/':
-            if not self.authenticated():return
+        if path=='/app' and self.authenticated():
             self.send_response(200)
             self.send_header('Content-Length','0');self.end_headers();return
         self.send_response(404);self.end_headers()
@@ -802,17 +817,28 @@ class Handler(BaseHTTPRequestHandler):
         u=urlparse(self.path)
         if u.path=='/healthz':
             return self.send_json(200, {'ok':True})
+        if u.path=='/':
+            return self.serve_html('访问入口.html')
+        if u.path=='/api/access/status':
+            try:
+                req_id=parse_qs(u.query).get('id',[''])[0]
+                return self.send_json(200, ACCESS.status(req_id,self.headers.get('X-Request-Token','')))
+            except Exception:
+                return self.send_json(400, {'error':'无法查询审批状态'})
         if not self.authenticated():
             return
-        if u.path=='/':
-            b=(ROOT/'后台.html').read_bytes()
-            self.send_response(200)
-            self.send_header('Content-Type','text/html; charset=utf-8')
-            self.send_header('Cache-Control','no-store')
-            self.send_header('X-Content-Type-Options','nosniff')
-            self.send_header('Content-Length',str(len(b)))
-            self.end_headers()
-            return self.wfile.write(b)
+        if u.path=='/app':
+            return self.serve_html('后台.html')
+        if u.path=='/api/access/requests':
+            if self.access_role!='admin':
+                return self.send_json(403, {'error':'仅管理员可以查看申请'})
+            return self.send_json(200, {'items': ACCESS.list_requests()})
+        if u.path=='/api/content-plan':
+            try:
+                a=parse_account(parse_qs(u.query).get('url',[''])[0])
+                return self.send_json(200, {'items':ACCESS.get_plan(a['platform'],a['id'])})
+            except ValueError as e:
+                return self.send_json(400, {'error':str(e)})
         if u.path=='/api/integrations':
             return self.send_json(200,{'items':integration_status(config())})
         if u.path=='/api/health':
@@ -899,6 +925,39 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(500, {'error':'服务端处理出错。请检查部署日志与数据服务设置。'})
 
     def do_POST(self):
+        u=urlparse(self.path)
+        if u.path=='/api/access/request':
+            try:
+                obj=self.body_json(1500)
+                return self.send_json(200,ACCESS.apply(obj.get('name'),obj.get('purpose'),self.client_address[0]))
+            except (ValueError,TypeError,json.JSONDecodeError) as ex:
+                return self.send_json(400,{'error':str(ex)})
+        if u.path=='/api/access/admin-login':
+            try:
+                obj=self.body_json(2000)
+                code=obj.get('code','')
+                if not isinstance(code,str):raise ValueError('通行码格式错误')
+                token=ACCESS.admin_login(code,self.client_address[0])
+                return self.send_json(200,{'token':token,'role':'admin'})
+            except (ValueError,TypeError,json.JSONDecodeError) as ex:
+                return self.send_json(401,{'error':str(ex)})
+        if u.path=='/api/access/decide':
+            if not self.authenticated():return
+            if self.access_role!='admin':return self.send_json(403,{'error':'只有管理员可以审批'})
+            try:
+                obj=self.body_json(2500)
+                return self.send_json(200,ACCESS.decide(obj.get('request_id'),obj.get('action')))
+            except (ValueError,TypeError,json.JSONDecodeError) as ex:
+                return self.send_json(400,{'error':str(ex)})
+        if u.path=='/api/content-plan':
+            if not self.authenticated():return
+            try:
+                obj=self.body_json(14000)
+                a=parse_account(obj.get('url',''))
+                items=ACCESS.save_plan(a['platform'],a['id'],obj.get('items'))
+                return self.send_json(200,{'ok':True,'items':items})
+            except (ValueError,TypeError,json.JSONDecodeError) as ex:
+                return self.send_json(400,{'error':str(ex)})
         if not self.authenticated():
             return
         u=urlparse(self.path)
@@ -1005,6 +1064,6 @@ if __name__=='__main__':
     print(f'CaseLens V10: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
-    if not os.getenv('CASELENS_PASSWORD'):
-        print('WARNING: CASELENS_PASSWORD is not configured; the app will refuse public access.')
+    if len(os.getenv('CASELENS_MASTER_CODE','')) < 20:
+        print('WARNING: CASELENS_MASTER_CODE missing. Administrator sign-in is disabled until configured.')
     ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()

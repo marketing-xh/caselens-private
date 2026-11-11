@@ -9,5 +9,5 @@ services:
     envVars:
       - key: CASELENS_CLOUD
         value: "1"
-      - key: CASELENS_PASSWORD
+      - key: CASELENS_MASTER_CODE
         sync: false
