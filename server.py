@@ -1,4 +1,4 @@
-"""CaseLens V10: validated public profiles + per-post Highlights + training estimates."""
+"""CaseLens V12: platform-specific public profiles, secure approval, and source-aware analytics."""
 import json
 import base64
 import hmac
@@ -251,7 +251,7 @@ def ig_fetch(a,cfg):
 
 def integration_status(cfg):
     bd=bool(os.getenv('BRIGHTDATA_API_TOKEN'))
-    return {'xiaohongshu':{'official':False,'public':False,'import':True,'reason':'创作者分析尚无通用开放接口；支持后台报表导入与培训情景'},
+    return {'xiaohongshu':{'official':False,'public':bool(os.getenv('QOVIA_API_KEY')),'import':True,'reason':'可选 Qovia 第三方公开主页数据（收费，需独立密钥）；真实创作者分析须导入本人报表'},
             'youtube':{'official':bool(os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key')),'public':False},
             'instagram':{'official':bool(os.getenv('INSTAGRAM_ACCESS_TOKEN') and os.getenv('INSTAGRAM_IG_USER_ID')),'public':bd},
             'facebook':{'official':bool(cfg.get('facebook_pages') or (os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'))),'public':bd},
@@ -430,28 +430,82 @@ def bd_call(url, data=None, timeout=25):
 
 
 def bd_scrape_profile(a):
-    """Match Bright Data's UI-verified synchronous URL collection API.
+    """Single URL Bright Data profile acquisition for TikTok, Instagram and Facebook.
 
-    The provider's code example uses POST /datasets/v3/scrape and a JSON
-    object {"input": [{"url": ..., "country": ""}]}, not a bare array.
+    Bright Data's /datasets/v3/scrape sync API accepts {"input":[{"url":...}]}.
+    A slow scrape can return a snapshot_id; caller may poll progress.
+    Never trigger a second paid posts/discovery job implicitly here.
     """
+    if a['platform'] not in ('tiktok','instagram','facebook'):
+        raise ValueError('当前同步公开资料接口只支持 TikTok、Instagram、Facebook')
     ds=os.getenv('BRIGHTDATA_'+a['platform'].upper()+'_DATASET_ID', BD_DATASETS[a['platform']])
     inp={'url':a['url']}
-    if a['platform']=='tiktok':
-        inp['country']=''
+    if a['platform']=='tiktok': inp['country']=''
     endpoint='https://api.brightdata.com/datasets/v3/scrape?'+urlencode({
-        'dataset_id':ds,'notify':'false','include_errors':'true'})
+        'dataset_id':ds,'format':'json','include_errors':'true'})
     raw=bd_call(endpoint, {'input':[inp]}, timeout=75)
     if isinstance(raw,dict) and isinstance(raw.get('snapshot_id'),str):
         return {'snapshot_id':raw['snapshot_id']}
-    if isinstance(raw,dict) and isinstance(raw.get('data'),list):
-        raw=raw['data']
-    if isinstance(raw,dict) and isinstance(raw.get('records'),list):
-        raw=raw['records']
+    if isinstance(raw,dict) and isinstance(raw.get('data'),list):raw=raw['data']
+    if isinstance(raw,dict) and isinstance(raw.get('records'),list):raw=raw['records']
     if isinstance(raw,dict):raw=[raw]
     if not isinstance(raw,list):
-        raise ValueError('公开采集服务已响应，但返回的不是账号记录或任务 ID。')
+        raise ValueError('公开采集返回格式不正确，未取得账号记录。')
     return bd_process(a,raw)
+
+
+def qovia_process(a, raw):
+    """Normalize optional third-party Xiaohongshu homepage data only, never Studio metrics."""
+    if a['platform']!='xiaohongshu':raise ValueError('小红书专用数据接口的平台不匹配')
+    if not isinstance(raw,dict):raise ValueError('小红书数据格式不正确')
+    d=raw.get('data',raw)
+    if not isinstance(d,dict) or d.get('result',{}).get('success') is False:
+        raise ValueError('小红书数据服务没有返回有效的主页资料')
+    # Validate the provider's returned profile URL or user id. An absent identity is not acceptable.
+    ids=[d.get(k) for k in ('userid','user_id','userId','id')]
+    link=d.get('share_link') or d.get('url') or d.get('profile_url')
+    if isinstance(link,str):
+        match=re.search(r'/user/profile/([0-9a-f]{24})',link,re.I)
+        if match:ids.append(match.group(1))
+    for location in (d.get('identity_deeplink'),d.get('sec_account_deeplink')):
+        if isinstance(location,str):
+            match=re.search(r'(?:user_id|targetId)=([0-9a-f]{24})',location,re.I)
+            if match:ids.append(match.group(1))
+    expected=a['id'].lower()
+    if expected not in [str(x).lower() for x in ids if x is not None]:
+        raise ValueError('小红书返回账号 ID 与输入主页不一致；拒绝把其他账号的数据写入案例。')
+    interactions=d.get('interactions') or []
+    total_interactions=None
+    for item in interactions if isinstance(interactions,list) else []:
+        if isinstance(item,dict) and item.get('type')=='interaction':
+            total_interactions=safe_number(item.get('count'))
+    stats={
+        'followers':numeric_field(d,'fans','followers','follower_count'),
+        'following':numeric_field(d,'follows','following'),
+        'video_count':(numeric_field(d.get('note_num_stat') or {},'posted') if numeric_field(d.get('note_num_stat') or {},'posted') is not None else numeric_field(d,'ndiscovery','posts_count')),
+        'total_likes_and_saves':total_interactions,
+    }
+    if not any(v is not None for v in stats.values()):
+        raise ValueError('小红书数据服务已返回结果，但没有可核实的主页统计')
+    return {'platform':a['platform'],'name':get_first(d,'nickname','red_id') or a['id'],
+        'url':a['url'],'avatar':get_first(d,'images','imageb','avatar'),
+        'account_country':get_first(d,'ip_location','location'),
+        'stats':stats,'posts':[], 'quality':'public-third-party',
+        'source':'Qovia · 小红书公开主页资料（第三方，非创作者后台）',
+        'provider_data_date':now(),'references':[a['url']],
+        'notes':['账号 IP 属地或公开地点不是粉丝地区。',
+                 '获赞与收藏是平台公开聚合数，不是近28天互动量。',
+                 '此数据服务不提供任意账号的真实创作者分析及粉丝性别年龄分布。']}
+
+
+def xhs_fetch(a):
+    token=os.getenv('QOVIA_API_KEY','').strip()
+    if not token:raise ValueError('小红书公开主页数据未接通。可选配置 QOVIA_API_KEY 或导入已获取的账号 JSON。')
+    if not re.fullmatch(r'[0-9a-fA-F]{24}',a['id']):
+        raise ValueError('小红书第三方资料接口需要主页链接中的24位十六进制账号 ID。')
+    endpoint='https://api.qovia.ai/v1/raw/xiaohongshu/user?'+urlencode({'user_id':a['id']})
+    try:return qovia_process(a,get_json(endpoint,token))
+    except ValueError as e:raise ValueError('小红书第三方公开资料接口失败：'+str(e)) from e
 
 
 def _bd_start(ds, inputs, discovery=None, limit=18):
@@ -514,9 +568,9 @@ def same_account(a,d):
     """Block cross-account contamination even if provider returns a stale/wrong record."""
     expected=account_token(a)
     fields={
-        'instagram':('account','username','user_name','profile_url'),
+        'instagram':('account','username','user_name','profile_url','url'),
         'tiktok':('account_id','username','user_name','unique_id','url'),
-        'facebook':('username','profile_handle','page_username','page_url','url'),
+        'facebook':('username','profile_handle','page_username','page_url','url','id'),
         'linkedin':('company_url','url','company_slug'),
         'youtube':('url','handle','channel_url'),
     }.get(a['platform'],('url',))
@@ -681,8 +735,8 @@ def bd_process(a, raw):
         name=get_first(d,'nickname','account_name','username','user_name') or '@'+a['id']
         stats={'followers':followers,'total_likes':total_likes,'video_count':count}
     else:
-        followers=numeric_field(d,'followers','follower_count','followers_count','page_followers')
-        fans=numeric_field(d,'page_likes','fan_count','fans')
+        followers=numeric_field(d,'followers','follower_count','followers_count','page_followers','followers_count_public')
+        fans=numeric_field(d,'page_likes','fan_count','fans','likes')
         name=get_first(d,'page_name','name','title','username') or a['id']
         stats={'followers':followers,'fans':fans}
     if not any(v is not None for v in stats.values()):
@@ -691,7 +745,7 @@ def bd_process(a, raw):
     origin=get_first(d,'account_based_in','account_country','country','country_name','location_country')
     if not isinstance(origin,str):origin=None
     # Avoid implying official verification or exactly live telemetry
-    return {'account_country':origin,'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image','profile_image_url','profile_pic_url'),
+    return {'account_country':origin,'page_category':get_first(d,'primary_category','category','entity_type') if a['platform']=='facebook' else None,'platform':a['platform'],'name':name,'url':a['url'], 'avatar':get_first(d,'avatar','profile_picture','profile_pic','profile_image','profile_image_url','profile_pic_url','profile_pic_url_hd'),
         'stats':stats,'posts':extract_public_posts(d,a['platform']), 'quality':'public-third-party',
         'source':'Bright Data · 公开页面采集（非平台官方后台）',
         'references':[a['url']], 'provider_data_date':get_first(d,'timestamp','updated_at','scraped_at'),
@@ -842,7 +896,7 @@ class Handler(BaseHTTPRequestHandler):
         if u.path=='/api/integrations':
             return self.send_json(200,{'items':integration_status(config())})
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V10','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V12','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
@@ -854,9 +908,10 @@ class Handler(BaseHTTPRequestHandler):
             if u.path=='/api/profile':
                 a=parse_account(parse_qs(u.query).get('url',[''])[0]); cfg=config()
                 if a['platform']=='xiaohongshu':
-                    # Never treat an OAuth login token as access to private creator metrics.
-                    # Use training scenario; imported analytics is preserved on refresh.
-                    return self.send_json(200, finish_direct(a,scenario_profile(a,'小红书账号的周期阅读、曝光、粉丝画像不提供任意链接公开读取；可导入本人后台报表。')))
+                    # The optional provider returns only public homepage stats; no creator studio permissions.
+                    if os.getenv('QOVIA_API_KEY'):
+                        return self.send_json(200,finish_direct(a,xhs_fetch(a)))
+                    return self.send_json(200,finish_direct(a,scenario_profile(a,'小红书尚未配置公开主页第三方服务；可导入已获得的账号资料或本人后台报表。')))
                 if a['platform']=='linkedin':
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
                         return self.send_json(202,bd_trigger(a))
@@ -865,7 +920,7 @@ class Handler(BaseHTTPRequestHandler):
                     if os.getenv('INSTAGRAM_ACCESS_TOKEN') and os.getenv('INSTAGRAM_IG_USER_ID'):
                         try:
                             own=ig_fetch(a,cfg)
-                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','0')=='1':
                                 response=bd_trigger(a,base_result=own)
                                 return self.send_json(202 if response.get('pending') else 200,response)
                             return self.send_json(200,finish_direct(a,own))
@@ -873,7 +928,12 @@ class Handler(BaseHTTPRequestHandler):
                             if not os.getenv('BRIGHTDATA_API_TOKEN'):
                                 return self.send_json(200,finish_direct(a,scenario_profile(a,ex)))
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
-                        return self.send_json(202,bd_trigger(a))
+                        result=bd_scrape_profile(a)
+                        if isinstance(result,dict) and result.get('snapshot_id'):
+                            jid=secrets.token_urlsafe(18)
+                            JOBS[jid]={'snapshots':{'profile':result['snapshot_id']},'a':a,'at':time.time()}
+                            return self.send_json(202,{'pending':True,'job_id':jid,'message':'正在获取 Instagram 公开主页资料'})
+                        return self.send_json(200,finish_direct(a,result))
                     return self.send_json(200,finish_direct(a,scenario_profile(a,'Instagram 公开采集及授权接口未配置')))
                 if a['platform']=='youtube':
                     if os.getenv('YOUTUBE_API_KEY') or cfg.get('youtube_api_key'):
@@ -890,7 +950,7 @@ class Handler(BaseHTTPRequestHandler):
                         except ValueError:
                             if not os.getenv('BRIGHTDATA_API_TOKEN'):raise
                         else:
-                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','0')=='1':
                                 response=bd_trigger(a,base_result=own)
                                 return self.send_json(202 if response.get('pending') else 200,response)
                             return self.send_json(200,finish_direct(a,own))
@@ -910,12 +970,17 @@ class Handler(BaseHTTPRequestHandler):
                         except ValueError:
                             if not os.getenv('BRIGHTDATA_API_TOKEN'):raise
                         else:
-                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','1')!='0':
+                            if os.getenv('BRIGHTDATA_API_TOKEN') and os.getenv('CASELENS_FETCH_POSTS','0')=='1':
                                 response=bd_trigger(a,base_result=own)
                                 return self.send_json(202 if response.get('pending') else 200,response)
                             return self.send_json(200,finish_direct(a,own))
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
-                        return self.send_json(202,bd_trigger(a))
+                        result=bd_scrape_profile(a)
+                        if isinstance(result,dict) and result.get('snapshot_id'):
+                            jid=secrets.token_urlsafe(18)
+                            JOBS[jid]={'snapshots':{'profile':result['snapshot_id']},'a':a,'at':time.time()}
+                            return self.send_json(202,{'pending':True,'job_id':jid,'message':'正在获取 Facebook 公开主页资料'})
+                        return self.send_json(200,finish_direct(a,result))
                     return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置Facebook公开采集服务')))
             return self.send_json(404, {'error':'Not found'})
         except ValueError as ex:
@@ -971,11 +1036,17 @@ class Handler(BaseHTTPRequestHandler):
             a=parse_account(obj['url'])
             if u.path=='/api/import-public':
                 raw=obj.get('records')
-                if a['platform']!='tiktok':raise ValueError('目前公开资料 JSON 直接导入仅支持 TikTok')
-                if isinstance(raw,dict):raw=[raw]
-                if not isinstance(raw,list) or len(raw)>30:raise ValueError('采集数据格式错误')
-                result=bd_process(a,raw)
-                result['source']='Bright Data · 已导入的公开账号采集结果'
+                if a['platform']=='xiaohongshu':
+                    if isinstance(raw,list):
+                        if len(raw)!=1:raise ValueError('小红书账号 JSON 必须恰好包含一条资料')
+                        raw=raw[0]
+                    result=qovia_process(a,raw)
+                elif a['platform'] in ('tiktok','instagram','facebook','linkedin'):
+                    if isinstance(raw,dict):raw=[raw]
+                    if not isinstance(raw,list) or len(raw)>30:raise ValueError('采集数据格式错误')
+                    result=bd_process(a,raw)
+                else:raise ValueError('该平台暂不支持公开采集 JSON 直接导入')
+                result['source']='第三方公开账号采集结果 · 手动导入（非平台官方后台）'
                 result['quality']='public-third-party-import'
                 result=finish_direct(a,result)
                 return self.send_json(200,result)
@@ -1061,7 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V10: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V12: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if len(os.getenv('CASELENS_MASTER_CODE','')) < 20:
