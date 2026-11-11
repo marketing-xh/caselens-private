@@ -1,4 +1,4 @@
-"""CaseLens V12: platform-specific public profiles, secure approval, and source-aware analytics."""
+"""CaseLens V12.1: stable Bright Data async polling for Instagram and Facebook."""
 import json
 import base64
 import hmac
@@ -765,7 +765,7 @@ def bd_check_job(jid):
         response=bd_call('https://api.brightdata.com/datasets/v3/progress/'+sid)
         statuses[kind]=response.get('status') if isinstance(response,dict) else 'failed'
     if any(v in ('starting','running') for v in statuses.values()):
-        return {'pending':True,'message':'正在读取账号资料与作品内容…'}
+        return {'pending':True,'job_id':jid,'message':'正在读取账号资料与作品内容…'}
     a=item['a']
     if item.get('base_result') is not None:
         payload=item['base_result']
@@ -896,14 +896,14 @@ class Handler(BaseHTTPRequestHandler):
         if u.path=='/api/integrations':
             return self.send_json(200,{'items':integration_status(config())})
         if u.path=='/api/health':
-            return self.send_json(200, {'ok':True,'service':'CaseLens V12','time':now()})
+            return self.send_json(200, {'ok':True,'service':'CaseLens V12.1','time':now()})
         try:
             if u.path=='/api/cases':
                 return self.send_json(200, {'items':list_cases()})
             if u.path=='/api/job':
                 jid=parse_qs(u.query).get('id',[''])[0]
-                if not re.fullmatch(r'[A-Za-z0-9_\-]{10,50}', jid):
-                    raise ValueError('无效的采集任务编号')
+                if not re.fullmatch(r'[A-Za-z0-9_\-]{10,80}', jid):
+                    raise ValueError('采集任务编号缺失或格式错误；请刷新页面后重新同步（已修复任务编号传递逻辑）。')
                 return self.send_json(200, bd_check_job(jid))
             if u.path=='/api/profile':
                 a=parse_account(parse_qs(u.query).get('url',[''])[0]); cfg=config()
@@ -1132,7 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__=='__main__':
-    print(f'CaseLens V12: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
+    print(f'CaseLens V12.1: http://{HOST}:{PORT} (cloud={HOST!="127.0.0.1"})')
     if not DATABASE_URL:
         print('NOTE: SQLite on Render ephemeral disk is not persistent across redeploy/restart. Configure DATABASE_URL for durable history.')
     if len(os.getenv('CASELENS_MASTER_CODE','')) < 20:
