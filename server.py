@@ -384,7 +384,7 @@ def numeric_field(d, *names):
     return None
 
 
-def bd_call(url, data=None):
+def bd_call(url, data=None, timeout=25):
     tok=os.getenv('BRIGHTDATA_API_TOKEN', '').strip()
     if not tok:
         raise ValueError('未配置公开数据采集凭据 BRIGHTDATA_API_TOKEN。只输入陌生 TikTok / Facebook 链接无法直接获得官方后台数据。')
@@ -395,7 +395,7 @@ def bd_call(url, data=None):
         hdr['Content-Type']='application/json'
     req=Request(url, data=raw, headers=hdr, method='POST' if data is not None else 'GET')
     try:
-        with urlopen(req, timeout=25) as r:
+        with urlopen(req, timeout=timeout) as r:
             return json.loads(r.read(5_000_000))
     except HTTPError as ex:
         # Display a bounded, redacted provider error to distinguish auth,
@@ -424,6 +424,31 @@ def bd_call(url, data=None):
         raise ValueError('公开数据服务 HTTP '+str(ex.code)+'：'+tip+(' 服务提示：'+detail if detail else '')) from ex
     except URLError as ex:
         raise ValueError('公开数据服务暂时无法连接：'+str(ex.reason)) from ex
+
+
+def bd_scrape_profile(a):
+    """Match Bright Data's UI-verified synchronous URL collection API.
+
+    The provider's code example uses POST /datasets/v3/scrape and a JSON
+    object {"input": [{"url": ..., "country": ""}]}, not a bare array.
+    """
+    ds=os.getenv('BRIGHTDATA_'+a['platform'].upper()+'_DATASET_ID', BD_DATASETS[a['platform']])
+    inp={'url':a['url']}
+    if a['platform']=='tiktok':
+        inp['country']=''
+    endpoint='https://api.brightdata.com/datasets/v3/scrape?'+urlencode({
+        'dataset_id':ds,'notify':'false','include_errors':'true'})
+    raw=bd_call(endpoint, {'input':[inp]}, timeout=75)
+    if isinstance(raw,dict) and isinstance(raw.get('snapshot_id'),str):
+        return {'snapshot_id':raw['snapshot_id']}
+    if isinstance(raw,dict) and isinstance(raw.get('data'),list):
+        raw=raw['data']
+    if isinstance(raw,dict) and isinstance(raw.get('records'),list):
+        raw=raw['records']
+    if isinstance(raw,dict):raw=[raw]
+    if not isinstance(raw,list):
+        raise ValueError('公开采集服务已响应，但返回的不是账号记录或任务 ID。')
+    return bd_process(a,raw)
 
 
 def _bd_start(ds, inputs, discovery=None, limit=18):
@@ -583,22 +608,34 @@ def extract_public_posts(record, platform):
     """Keep only provider-returned post details; never fabricate URLs or metrics."""
     if not isinstance(record,dict): return []
     candidates=[]
-    for key in ('posts','recent_posts','latest_posts','media','publications','videos','recent_videos'):
+    for key in ('posts','recent_posts','latest_posts','media','publications','videos','recent_videos','top_videos'):
         val=record.get(key)
         if isinstance(val,dict): val=val.get('items') or val.get('data')
         if isinstance(val,list): candidates.extend(x for x in val if isinstance(x,dict))
+    if platform=='tiktok':
+        extra={str(x.get('post_id')):x for x in (record.get('top_posts_data') or []) if isinstance(x,dict)}
+        for post in candidates:
+            pid=str(post.get('video_id') or post.get('post_id') or '')
+            found=extra.get(pid)
+            if found:
+                post.setdefault('description',found.get('description'))
+                post.setdefault('video_url',found.get('post_url'))
+        if not candidates:
+            candidates.extend(x for x in (record.get('top_posts_data') or []) if isinstance(x,dict))
     result=[]
     for post in candidates[:50]:
         text=get_first(post,'title','caption','description','text','message')
         src=get_first(post,'url','link','permalink','post_url','video_url')
         if not isinstance(src,str) or not src.startswith('https://'):src=None
         item={'title':str(text or '公开内容').strip()[:110],
-              'views':numeric_field(post,'views','view_count','plays','video_views','play_count','impressions','reach'),
-              'likes':numeric_field(post,'likes','like_count','reactions'),
-              'comments':numeric_field(post,'comments','comments_count','comment_count'),
+              'views':numeric_field(post,'views','view_count','plays','video_views','play_count','playcount','impressions','reach'),
+              'likes':numeric_field(post,'likes','like_count','diggcount','reactions'),
+              'comments':numeric_field(post,'comments','comments_count','comment_count','commentcount'),
               'shares':numeric_field(post,'shares','share_count','reposts'),
-              'saves':numeric_field(post,'saves','saves_count','saved','favorites'),
-              'date':get_first(post,'date','timestamp','taken_at','create_time','created_at')}
+              'saves':numeric_field(post,'saves','saves_count','saved','favorites','favorites_count'),
+              'date':normalize_date(get_first(post,'date','timestamp','taken_at','create_time','create_date','created_at'))}
+        if src and platform=='tiktok' and not src.startswith('https://www.tiktok.com/@'+str(record.get('account_id') or '').lower()+'/video/'):
+            continue
         if src:item['url']=src
         if any(item.get(k) is not None for k in ('views','likes','comments','shares','saves')):
             result.append(item)
@@ -636,7 +673,7 @@ def bd_process(a, raw):
     elif a['platform']=='tiktok':
         # TikTok profile dataset fields vary between versions. Only use fields actually present.
         followers=numeric_field(d,'followers','follower_count','followers_count','num_followers','fans','fans_count')
-        total_likes=numeric_field(d,'likes','total_likes','hearts','likes_count','total_hearts','heart_count','heartCount')
+        total_likes=numeric_field(d,'likes','like_count','total_likes','hearts','likes_count','total_hearts','heart_count','heartCount')
         count=numeric_field(d,'video_count','videos_count','videos','posts_count','number_of_posts','post_count')
         name=get_first(d,'nickname','account_name','username','user_name') or '@'+a['id']
         stats={'followers':followers,'total_likes':total_likes,'video_count':count}
@@ -832,7 +869,12 @@ class Handler(BaseHTTPRequestHandler):
                                 return self.send_json(202 if response.get('pending') else 200,response)
                             return self.send_json(200,finish_direct(a,own))
                     if os.getenv('BRIGHTDATA_API_TOKEN'):
-                        return self.send_json(202,bd_trigger(a))
+                        result=bd_scrape_profile(a)
+                        if isinstance(result,dict) and result.get('snapshot_id'):
+                            jid=secrets.token_urlsafe(18)
+                            JOBS[jid]={'snapshots':{'profile':result['snapshot_id']},'a':a,'at':time.time()}
+                            return self.send_json(202,{'pending':True,'job_id':jid,'message':'正在获取 TikTok 真实公开资料'})
+                        return self.send_json(200,finish_direct(a,result))
                     return self.send_json(200,finish_direct(a,scenario_profile(a,'未配置TikTok公开采集服务')))
                 if a['platform']=='facebook':
                     entry=cfg.get('facebook_pages',{}).get(a['id']) or cfg.get('facebook_pages',{}).get(a['url']) or (os.getenv('FACEBOOK_PAGE_ID') and os.getenv('FACEBOOK_PAGE_ACCESS_TOKEN'))
@@ -860,14 +902,24 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authenticated():
             return
         u=urlparse(self.path)
-        if u.path not in ('/api/cases','/api/estimate','/api/verify-public'):
+        if u.path not in ('/api/cases','/api/estimate','/api/verify-public','/api/import-public'):
             return self.send_json(404, {'error':'Not found'})
         try:
             n=int(self.headers.get('Content-Length','0'))
-            if n<=0 or n>200_000:
+            if n<=0 or n>1_000_000:
                 raise ValueError('导入文件内容不合法或超过大小限制')
             obj=json.loads(self.rfile.read(n))
             a=parse_account(obj['url'])
+            if u.path=='/api/import-public':
+                raw=obj.get('records')
+                if a['platform']!='tiktok':raise ValueError('目前公开资料 JSON 直接导入仅支持 TikTok')
+                if isinstance(raw,dict):raw=[raw]
+                if not isinstance(raw,list) or len(raw)>30:raise ValueError('采集数据格式错误')
+                result=bd_process(a,raw)
+                result['source']='Bright Data · 已导入的公开账号采集结果'
+                result['quality']='public-third-party-import'
+                result=finish_direct(a,result)
+                return self.send_json(200,result)
             if u.path=='/api/verify-public':
                 fields=obj.get('fields')
                 if not isinstance(fields,dict):raise ValueError('核实资料格式错误')
